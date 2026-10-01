@@ -369,8 +369,13 @@ Json Service::overview(std::string_view resource, unsigned offset) {
     else if (resource == "transactions")
         sql = "SELECT "
               "t.transaction_pk,t.id_tag,t.start_timestamp,t.start_value,c.charge_box_id,c."
-              "connector_id FROM transaction_start t JOIN connector c ON "
-              "c.connector_pk=t.connector_pk ORDER BY t.transaction_pk DESC LIMIT 100 OFFSET ?";
+              "connector_id,s.stop_timestamp,s.stop_value,s.stop_reason,"
+              "CASE WHEN s.transaction_pk IS NULL THEN 'Active' ELSE 'Ended' END AS state "
+              "FROM transaction_start t JOIN connector c ON c.connector_pk=t.connector_pk "
+              "LEFT JOIN transaction_stop s ON s.transaction_pk=t.transaction_pk AND "
+              "s.event_timestamp=(SELECT MAX(latest.event_timestamp) FROM transaction_stop latest "
+              "WHERE latest.transaction_pk=t.transaction_pk) "
+              "ORDER BY t.transaction_pk DESC LIMIT 100 OFFSET ?";
     else if (resource == "ocppTags")
         sql = "SELECT ocpp_tag_pk,id_tag,parent_id_tag,expiry_date,max_active_transaction_count "
               "FROM ocpp_tag ORDER BY ocpp_tag_pk LIMIT 100 OFFSET ?";
@@ -419,6 +424,9 @@ Json Service::overview(std::string_view resource, unsigned offset) {
     else if (resource == "profiles201")
         sql = "SELECT * FROM cpp201_profile ORDER BY station_id,evse_id,profile_id LIMIT 100 "
               "OFFSET ?";
+    else if (resource == "idTokens")
+        sql = "SELECT token,token_type,status,expiry_timestamp,group_token_body FROM "
+              "cpp201_id_token ORDER BY token LIMIT 100 OFFSET ?";
     else
         throw ProtocolError("NotSupported", "Unknown resource");
     auto db = database_.acquire();

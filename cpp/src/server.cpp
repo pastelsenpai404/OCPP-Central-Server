@@ -1,3 +1,4 @@
+#include "admin_assets.hpp"
 #include "ocpp/commands.hpp"
 #include "ocpp/executor.hpp"
 #include "ocpp/http_client.hpp"
@@ -8,6 +9,7 @@
 #include <drogon/HttpFilter.h>
 #include <drogon/WebSocketController.h>
 #include <drogon/drogon.h>
+#include <fstream>
 #include <iostream>
 #include <set>
 
@@ -47,6 +49,7 @@ struct Runtime {
     Schemas schemas201;
     std::map<std::string, std::unique_ptr<Schemas>> legacy_schemas;
     std::map<std::string, std::unique_ptr<SoapCodec>> soap_codecs;
+    ocpp::Json command_catalog = ocpp::Json::object();
     Database database;
     Service service;
     std::mutex mutex;
@@ -65,6 +68,38 @@ struct Runtime {
                                    std::make_unique<Schemas>(path / version, false, count));
             soap_codecs.emplace(version,
                                 std::make_unique<SoapCodec>(path / version / "soap.registry"));
+        }
+        for (const auto &version : {"1.2", "1.5", "1.6", "2.0.1"}) {
+            const auto directory = std::string_view(version) == "1.6" ? path : path / version;
+            ocpp::Json entries = ocpp::Json::array();
+            for (const auto &file : std::filesystem::directory_iterator(directory)) {
+                if (file.path().extension() != ".json")
+                    continue;
+                auto action = file.path().stem().string();
+                if (std::string_view(version) == "2.0.1") {
+                    if (!action.ends_with("Request"))
+                        continue;
+                    action.resize(action.size() - 7);
+                    if (incoming201_action(action) && action != "DataTransfer")
+                        continue;
+                } else if (!outbound_action(action))
+                    continue;
+                ocpp::Json schema;
+                std::ifstream input(
+                    (std::string_view(version) == "1.2" || std::string_view(version) == "1.5")
+                        ? path / (action + ".json")
+                        : file.path());
+                input >> schema;
+                entries.push_back({{"action", action},
+                                   {"schema", schema},
+                                   {"requiredRole", action == "CertificateSigned" ||
+                                                            action == "InstallCertificate" ||
+                                                            action == "DeleteCertificate" ||
+                                                            action == "SetNetworkProfile"
+                                                        ? 3
+                                                        : 2}});
+            }
+            command_catalog[version] = std::move(entries);
         }
     }
     std::shared_ptr<Session> find(const std::string &id) {
@@ -464,7 +499,11 @@ bool authorize(const drogon::HttpRequestPtr &req, const HttpCallback &cb, int ro
         failure(cb, 401, "unauthorized");
         return false;
     }
-    if (!req->getHeader("origin").empty()) {
+    const auto &origin = req->getHeader("origin");
+    const auto expected_origin =
+        std::string(req->isOnSecureConnection() ? "https://" : "http://") + req->getHeader("host");
+    if ((!origin.empty() && origin != expected_origin) ||
+        req->getHeader("sec-fetch-site") == "cross-site") {
         failure(cb, 403, "browser_origin_not_allowed");
         return false;
     }
@@ -484,6 +523,67 @@ ocpp::Json request_json(const drogon::HttpRequestPtr &req) {
 }
 void register_routes() {
     auto &app = drogon::app();
+    for (const auto &path : {std::string("/"), std::string("/admin"), std::string("/admin/"),
+                             std::string("/admin/app.js"), std::string("/admin/styles.css")}) {
+        app.registerHandler(
+            path,
+            [path](const drogon::HttpRequestPtr &, HttpCallback &&cb) {
+                auto response = drogon::HttpResponse::newHttpResponse();
+                response->setStatusCode(drogon::k200OK);
+                const bool js = path.ends_with(".js"), css = path.ends_with(".css");
+                response->addHeader("Content-Type", js    ? "text/javascript; charset=utf-8"
+                                                    : css ? "text/css; charset=utf-8"
+                                                          : "text/html; charset=utf-8");
+                response->addHeader("Cache-Control", "no-store");
+                response->addHeader("X-Content-Type-Options", "nosniff");
+                response->addHeader("Referrer-Policy", "no-referrer");
+                response->addHeader(
+                    "Content-Security-Policy",
+                    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+                    "frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+                response->setBody(std::string(js ? ui::js : css ? ui::css : ui::html));
+                cb(response);
+            },
+            {drogon::Get});
+    }
+    app.registerHandler(
+        "/api/v1/admin/session",
+        [](const drogon::HttpRequestPtr &req, HttpCallback &&cb) {
+            if (!authorize(req, cb, 1))
+                return;
+            const int role = runtime->config.role(req->getHeader("authorization"));
+            ocpp::Json stations = ocpp::Json::array(), configured = ocpp::Json::array();
+            {
+                std::lock_guard lock(runtime->mutex);
+                for (const auto &[id, session] : runtime->sessions)
+                    stations.push_back({{"station", id}, {"protocol", session->protocol}});
+            }
+            if (role == 3)
+                for (const auto &[id, secret] : runtime->config.station_secrets.items()) {
+                    static_cast<void>(secret);
+                    configured.push_back(id);
+                }
+            cb(http(200, {{"role", role},
+                          {"onlineStations", stations},
+                          {"configuredStations", configured},
+                          {"soapStations", [&] {
+                               ocpp::Json ids = ocpp::Json::array();
+                               for (const auto &[id, endpoint] :
+                                    runtime->config.soap_endpoints.items()) {
+                                   static_cast<void>(endpoint);
+                                   ids.push_back(id);
+                               }
+                               return ids;
+                           }()}}));
+        },
+        {drogon::Get});
+    app.registerHandler("/api/v1/admin/commands",
+                        [](const drogon::HttpRequestPtr &req, HttpCallback &&cb) {
+                            if (!authorize(req, cb, 1))
+                                return;
+                            cb(http(200, runtime->command_catalog));
+                        },
+                        {drogon::Get});
     for (const auto &[version, suffix] : std::map<std::string, std::string>{
              {"1.2", "12"}, {"1.5", "15"}, {"1.6", "16"}, {"auto", ""}}) {
         for (const auto &prefix :
@@ -628,7 +728,8 @@ void register_routes() {
             if (!authorize(req, cb,
                            (resource == "audit" || resource == "securityEvents" ||
                             resource == "certificateRequests" || resource == "reports201" ||
-                            resource == "deviceModel201" || resource == "billingSandbox")
+                            resource == "deviceModel201" || resource == "billingSandbox" ||
+                            resource == "idTokens")
                                ? 3
                                : (resource == "tasks" ? 2 : 1)))
                 return;
@@ -807,6 +908,32 @@ void register_routes() {
                                 failure(*callback, 503, "server_busy");
                         },
                         {drogon::Get});
+    app.registerHandler(
+        "/api/v1/idTokens",
+        [](const drogon::HttpRequestPtr &req, HttpCallback &&cb) {
+            if (!authorize(req, cb, 3))
+                return;
+            unsigned offset = 0;
+            const auto input = req->getParameter("offset");
+            if (!input.empty()) {
+                const auto [end, ec] =
+                    std::from_chars(input.data(), input.data() + input.size(), offset);
+                if (ec != std::errc{} || end != input.data() + input.size()) {
+                    failure(cb, 400, "invalid_offset");
+                    return;
+                }
+            }
+            auto callback = std::make_shared<HttpCallback>(std::move(cb));
+            if (!runtime->executor.submit("api-read", [offset, callback] {
+                    try {
+                        (*callback)(http(200, runtime->service.overview("idTokens", offset)));
+                    } catch (const std::exception &) {
+                        failure(*callback, 503, "database_unavailable");
+                    }
+                }))
+                failure(*callback, 503, "server_busy");
+        },
+        {drogon::Get});
     app.registerHandler("/api/v1/idTokens",
                         [](const drogon::HttpRequestPtr &req, HttpCallback &&cb) {
                             if (!authorize(req, cb, 3))

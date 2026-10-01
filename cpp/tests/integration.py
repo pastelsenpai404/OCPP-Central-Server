@@ -28,10 +28,12 @@ def check(value, label):
     if not value:
         raise AssertionError(label)
 
-def api(port, path, token=None, body=None):
+def api(port, path, token=None, body=None, origin=None):
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = "Bearer " + token
+    if origin is not None:
+        headers["Origin"] = origin
     request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", headers=headers,
         data=None if body is None else json.dumps(body).encode())
     try:
@@ -66,6 +68,18 @@ async def scenarios(port, tokens, password, db):
         except InvalidStatus as error:
             check(error.response.status_code in (400, 401), "handshake rejected")
     check(api(port,"/api/v1/transactions")[0] == 401, "REST authentication")
+    check(api(port,"/api/v1/admin/session")[0]==401,"UI session metadata requires authentication")
+    reader_session=api(port,"/api/v1/admin/session",tokens['read'])
+    check(reader_session[0]==200 and reader_session[1]['role']==1 and not reader_session[1]['configuredStations'],"reader session metadata never returns configured credentials")
+    catalog=api(port,"/api/v1/admin/commands",tokens['read'])
+    check(catalog[0]==200 and len(catalog[1]['1.6'])==26 and len(catalog[1]['2.0.1'])==40,"UI command catalog covers all CSMS directions")
+    check(api(port,"/api/v1/idTokens",tokens['read'])[0]==401,"id-token read requires admin")
+    check(api(port,"/api/v1/idTokens",tokens['admin'])[0]==200,"admin id-token GET is reachable alongside POST")
+    check(api(port,"/api/v1/ocppTags",tokens['admin'],{'idTag':'UI_ORIGIN','maxActiveTransactions':0},f'http://127.0.0.1:{port}')[0]==200,"same-origin UI POST with bearer authentication")
+    check(api(port,"/api/v1/ocppTags",tokens['admin'],{'idTag':'EXTERNAL_ORIGIN','maxActiveTransactions':0},'https://external.example')[0]==403,"external browser origin denied despite valid token")
+    with db.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) FROM ocpp_tag WHERE id_tag='EXTERNAL_ORIGIN'")
+        check(cursor.fetchone()[0]==0,"denied browser POST has no database side effects")
     check(api(port,"/api/v1/transactions",tokens["read"])[0] == 200, "reader transaction list")
     check(api(port,"/api/v1/transactions?offset=invalid",tokens["read"])[0] == 400, "pagination validation")
     check(api(port,"/api/v1/chargepoints",tokens["read"],{"chargeBoxId":"OTHER"})[0] == 401, "reader cannot provision")
@@ -202,6 +216,7 @@ def main():
     parser.add_argument("--load-stations",type=int,default=0)
     parser.add_argument("--load-rounds",type=int,default=50)
     parser.add_argument("--load-rate",type=float,default=10)
+    parser.add_argument("--ui",action="store_true",help="Run Playwright UI checks against this isolated fixture")
     args=parser.parse_args()
     root_password=os.environ["OCPP_TEST_DB_PASSWORD"]
     name="ocpp_cpp_test_"+secrets.token_hex(6)
@@ -259,6 +274,9 @@ def main():
                 asyncio.run(outgoing_soap(args.port,tokens,device,api,check))
                 from billing_scenarios import sandbox
                 sandbox(args.port,tokens,db,api,check)
+                if args.ui:
+                    from ui_scenarios import admin_ui
+                    admin_ui(args.port,tokens,check)
                 # Crash after confirmed dispatch and before reply. Startup must retain
                 # an uncertain outcome, without sending the command a second time.
                 from concurrent.futures import ThreadPoolExecutor

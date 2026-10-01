@@ -4,20 +4,24 @@
 
 This project builds a C++20 service for OCPP 1.2/1.5/1.6 JSON and SOAP, plus OCPP 2.0.1 JSON, for Windows and Linux. It preserves the existing MariaDB table names and writes additive runtime tables. The Java application and its configuration are unchanged. Legacy billing workflows and the JSP administration application remain to be migrated; billing currently has an isolated settlement simulator. See [the parity record](docs/PARITY.md) for remaining release work.
 
+## Administration UI
+
+Open `http://127.0.0.1:5003/` after `run-local.ps1` reports READY. The Control room UI provides a dashboard, station/transaction tables, schema-based OCPP commands and results, tags/tokens, reports/security/audit, and billing sandbox. Sign in with `OCPP_ADMIN_TOKEN` (or the appropriate operator/reader token) from the private `config.local.json`. The token remains in browser memory; reload/sign-out clears it. All writes require review and API-side authorization. See [UI operations and limits](docs/ADMIN-UI.md).
+
 ## Implemented
 
 - Fourteen incoming OCPP 1.6 actions, including security notifications and verified CSR requests awaiting issuer review. OCPP 1.2/1.5 conversions preserve their meter formats, boot heartbeat fields and local-list spelling.
 - OCPP 2.0.1: all 64 action schema pairs and direction handling, 25 station-initiated actions and 40 CSMS commands (DataTransfer overlaps); durable transaction events, sequence/replay conflict checks, late offline events, EVSE status, report chunks, device variables, local tokens/lists, reservations and profiles. Certificate-dependent positive paths require trusted providers; they currently fail closed.
 - SOAP 1.2 envelopes for OCPP 1.2/1.5/1.6, typed namespace-checked bodies and WS-Addressing, authenticated version routes and the legacy namespace router. SOAP failures return Sender/Receiver fault envelopes, with validated message correlation when available. Outgoing SOAP uses explicitly configured device endpoints, bounded HTTP responses, verified HTTPS, and no redirects. Private literal IPv4 HTTP origins require explicit configuration.
 - Request/response schema validation, strict envelopes, duplicate-member rejection, nesting/size/sample bounds, UTC conversion, integer range checks.
-- Per-station random Basic credentials, reader/operator/admin bearer credentials, registration checks, transaction ownership checks, denial of browser-origin requests.
+- Per-station random Basic credentials, reader/operator/admin bearer credentials, registration checks, transaction ownership checks, same-origin authenticated browser administration; browser origins remain denied on charger transports.
 - Prepared SQL statements, bounded connection pool, explicit TLS verification for remote DB connections, atomic transaction/replay/outbox writes.
 - Persistent request-ID replay for mutations and semantic start/stop deduplication, with station-row locking to serialize database changes. Authorization, boot and heartbeat responses always reflect current state rather than a cached decision/time.
 - Bounded FIFO worker lanes, per-session in-flight limits, rate limiting, correlated outbound commands, disconnect/error/30-second timeout handling.
 - Twenty-six OCPP 1.6 outbound actions, including firmware/diagnostics and security commands. Transfer URLs require an explicit HTTPS origin allowlist. Reservations, profiles and local-list state update only after validated device replies.
 - Durable command tasks, audit outcomes and restart recovery to `Uncertain`; ambiguous commands are not automatically resent. Variable replies must match their requests. Stored network-profile requests are redacted from task reads.
 - Batch prepared inserts for up to 512 bounded meter samples/rows. Sandbox billing uses integer milliWh and minor currency units, explicit tariffs, parking grace intervals and an idempotent simulation ledger; it executes no payment.
-- Paginated station/tag/transaction/reservation/status/audit reads; authenticated station provisioning and tag updates; JSON counters and liveness/readiness endpoints.
+- Embedded responsive administration UI, role-aware navigation, schema-based command forms/advanced JSON, reviewed writes, current-page search/export and live-session metadata. Paginated station/tag/token/transaction/reservation/status/audit reads; authenticated provisioning and access updates; JSON counters and health endpoints.
 - A pinned Drogon transport patch for aggregate fragmented-message limits, masked client frames, interleaved control frames, and a 1 MiB send-buffer high-water close.
 
 ## Build on Windows
@@ -32,7 +36,15 @@ Outputs: `build/Release/ocpp_server.exe`, `ocpp_tests.exe`, `ocpp_benchmark.exe`
 
 ### Run on Windows
 
-If using the database already provisioned on `104.248.96.73`, keep `./run-db-tunnel.ps1` open in one console and run `./run-server.ps1` in another. `config.local.json` and its CA are already prepared. See [database setup and maintenance](docs/DATABASE.md). The initialization steps below are for a different/new configuration.
+For a local server using the database already provisioned on `104.248.96.73`, run this single launcher (from any working directory):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ./run-local.ps1
+```
+
+It checks the prepared configuration, opens a pinned SSH tunnel, prompts for the key passphrase in the same console, starts the local C++ server and checks DB-backed readiness. Keep the console open; Ctrl+C closes its server and tunnel. The passphrase is not stored or passed as a command-line argument. The server listens on loopback, so this mode is for clients on this computer. PuTTY/plink is required; `config.local.json`, the DB CA and the private key under `material` are already prepared. Use `-Build` to rebuild first, or `-ConfigPath`/`-KeyPath` for another prepared configuration/key.
+
+The separate `run-db-tunnel.ps1` and `run-server.ps1` launchers remain available. See [database setup and maintenance](docs/DATABASE.md). The initialization steps below are for a different/new configuration.
 
 ```powershell
 ./run-server.ps1 -InitConfig

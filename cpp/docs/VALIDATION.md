@@ -7,7 +7,7 @@
 - Windows 11 Home 10.0.26200 x64, Visual Studio 2022 Build Tools, MSVC 14.44.35207, CMake, Release mode.
 - Own C++ targets compile with `/W4 /WX /sdl /guard:cf`; dependency warning settings differ.
 - CTest: core executable passed **94 assertions**, covering malformed messages, duplicate JSON members, size/depth bounds, schema constraints, timestamps, authorization roles, rates, queue capacity and FIFO order.
-- Isolated MariaDB 11.4.5 integration: **417 assertions passed**, against checked-in legacy schema definitions without data and all six additive migrations.
+- Isolated MariaDB 11.4.5 integration: **544 assertions passed**, against checked-in legacy schema definitions without data and all six additive migrations.
 - Cases include missing credentials/wrong subprotocol, reader/admin permissions, pagination, boot and heartbeat, all ten incoming actions, tag blocking and authorization replay after revocation, transaction/meter/status persistence, same-ID replay, semantic start/stop deduplication, conflicting IDs, cross-station denial, outbox atomicity, outbound command success/invalid reply/CALLERROR/30-second timeout, reconnect replay, duplicate-key rejection, valid fragments with interleaved ping, aggregate fragment limits and unmasked-frame rejection.
 - Test databases used newly generated names and credentials on separately started ephemeral loopback ports. These integration tests touch only their temporary database. Separate setup/smoke checks use the newly provisioned, isolated remote C++ database.
 - The original Java `src`, `pom.xml` and `docs` have no tracked changes.
@@ -15,7 +15,15 @@
 
 Additional current cases cover every 2.0.1 action direction; local-list/profile/reservation persistence; variable-result correlation; late/conflicting transaction events; complete 50-character vendor metadata; legacy JSON conversions; typed SOAP inputs/router and actual outgoing HTTP commands; namespace/correlation/redirect rejection; SOAP Sender/Receiver faults, escaped text, authenticated correlation and malformed-message rejection; RSA/P256 CSR verification and forged/weak key rejection; 512-item bulk inserts; integer sandbox billing and idempotency; prepared-statement reuse; an explicitly killed test DB connection and safe reconnection; and an actual server process crash followed by uncertain task recovery without redispatch.
 
-The actual PowerShell launcher was smoke-tested against the migrated 38-table remote C++ database over pinned SSH and verified DB TLS. Startup/readiness validate the required tables. The original legacy database/service remains separate.
+The actual PowerShell launcher was smoke-tested against the migrated 38-table remote C++ database over pinned SSH and verified DB TLS. Startup/readiness validate the required tables. The original legacy database/service remains separate. The single-console `run-local.ps1` was also exercised with PuTTY key authentication against that DB and HTTP readiness 200; a native Windows Ctrl+C event exited successfully and released the process tree. Terminating the launcher independently released both owned process trees through its Windows job. An occupied-port check from another working directory failed before opening SSH.
+
+## Administration UI checks
+
+The Release executable embeds the Control room HTML/CSS/JavaScript. Headless Microsoft Edge/Playwright exercised the dashboard and each navigation view, invalid-token login, reader/operator/admin menus, every command editor (1.2/1.5/1.6/2.0.1), cancelled review, successful mock SOAP Reset with command ID, tag/token/group provisioning, sandbox settlement, untrusted tag text and a 390-pixel viewport. No uncaught browser JavaScript errors were observed. These UI writes used only the ephemeral integration database, not the remote DB. The 544 integration assertion total includes these browser checks.
+
+API regression separately checks missing authentication, admin-only id-token reads, same-origin Bearer POST, foreign-origin denial without DB side effects, catalog action counts, and restricted session metadata. Core tests still passed 94 assertions. Remote smoke checks confirmed the embedded UI returns HTTP 200 with security headers and its authenticated session returns CP01 metadata; the remote sandbox ledger remained empty.
+
+Browser tokens are retained only in page memory; no localStorage/sessionStorage/cookie persistence is implemented. The UI is scoped to the existing local setup. These tests do not establish pentest completion or full legacy UI/business parity. See ADMIN-UI.md.
 
 ## Performance samples
 

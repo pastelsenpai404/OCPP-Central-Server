@@ -1,0 +1,7 @@
+#pragma once
+#include <string_view>
+namespace ocpp::ui {
+inline constexpr std::string_view html = R"OCPPUI(@ADMIN_HTML@)OCPPUI";
+inline constexpr std::string_view css = R"OCPPUI(@ADMIN_CSS@)OCPPUI";
+inline constexpr std::string_view js = R"OCPPUI(@ADMIN_JS@)OCPPUI";
+}

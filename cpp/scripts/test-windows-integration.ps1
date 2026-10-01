@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][string]$MariaDbDirectory,[string]$Python='python',[ValidateSet('Release','Debug')][string]$Configuration='Release',[ValidateRange(0,200)][int]$LoadStations=0)
+param([Parameter(Mandatory=$true)][string]$MariaDbDirectory,[string]$Python='python',[ValidateSet('Release','Debug')][string]$Configuration='Release',[ValidateRange(0,200)][int]$LoadStations=0,[switch]$Ui)
 $ErrorActionPreference='Stop'
 $Root=Split-Path -Parent $PSScriptRoot
 $MariaDbDirectory=(Resolve-Path -LiteralPath $MariaDbDirectory).Path
@@ -31,7 +31,9 @@ try {
   $savedPreference=$ErrorActionPreference
   $ErrorActionPreference='Continue'
   try {
-    & $Python -u "$Root/tests/integration.py" --server "$Root/build/$Configuration/ocpp_server.exe" --db-port $dbPort --port $serverPort --load-stations $LoadStations
+    [string[]]$uiArgs = @()
+    if($Ui){$uiArgs += '--ui'}
+    & $Python -u "$Root/tests/integration.py" --server "$Root/build/$Configuration/ocpp_server.exe" --db-port $dbPort --port $serverPort --load-stations $LoadStations @uiArgs
     $testCode=$LASTEXITCODE
   } finally { $ErrorActionPreference=$savedPreference }
   if($testCode){throw 'Integration tests failed'}
