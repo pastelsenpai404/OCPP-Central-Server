@@ -33,7 +33,7 @@ try {
   try {
     [string[]]$uiArgs = @()
     if($Ui){$uiArgs += '--ui'}
-    & $Python -u "$Root/tests/integration.py" --server "$Root/build/$Configuration/ocpp_server.exe" --db-port $dbPort --port $serverPort --load-stations $LoadStations @uiArgs
+    & $Python -u "$Root/tests/integration/integration.py" --server "$Root/build/$Configuration/ocpp_server.exe" --db-port $dbPort --port $serverPort --load-stations $LoadStations @uiArgs
     $testCode=$LASTEXITCODE
   } finally { $ErrorActionPreference=$savedPreference }
   if($testCode){throw 'Integration tests failed'}

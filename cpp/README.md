@@ -24,6 +24,10 @@ Open `http://127.0.0.1:5003/` after `run-local.ps1` reports READY. The Control r
 - Embedded responsive administration UI, role-aware navigation, schema-based command forms/advanced JSON, reviewed writes, current-page search/export and live-session metadata. Paginated station/tag/token/transaction/reservation/status/audit reads; authenticated provisioning and access updates; JSON counters and health endpoints.
 - A pinned Drogon transport patch for aggregate fragmented-message limits, masked client frames, interleaved control frames, and a 1 MiB send-buffer high-water close.
 
+## Code organization
+
+See [architecture and module boundaries](docs/ARCHITECTURE.md) and [team development rules](CONTRIBUTING.md). Source, public headers, build targets and tests are grouped by responsibility. Run `python scripts/check-architecture.py` before review; CTest also runs this check when Python is available.
+
 ## Build on Windows
 
 Requires Git, Visual Studio 2022 C++ Build Tools with its CMake component, and internet access for pinned sources. Dependencies install under `.deps/`; no system compiler or database service is installed.
@@ -129,9 +133,9 @@ python -m pip install websockets==15.0.1 PyMySQL==1.1.2
 ./build/Release/ocpp_benchmark.exe ./schemas
 ```
 
-The integration fixture imports **schema definitions only** from the sibling reference dumps. Those fixtures are not bundled into a deployed installation. On Linux, run `tests/integration.py --server build/ocpp_server --db-port <isolated-local-db-port>` with `OCPP_TEST_DB_PASSWORD` set for that local test server.
+The integration fixture imports **schema definitions only** from the sibling reference dumps. Those fixtures are not bundled into a deployed installation. On Linux, run `tests/integration/integration.py --server build/ocpp_server --db-port <isolated-local-db-port>` with `OCPP_TEST_DB_PASSWORD` set for that local test server.
 
-See `docs/VALIDATION.md` for actual results. The microbenchmark excludes SQL, network, TLS, billing, memory/RSS and concurrency. No throughput improvement over Java has been established. `tests/fuzz.cpp` is a libFuzzer entry point, not evidence of a completed fuzz campaign.
+See `docs/VALIDATION.md` for actual results. The microbenchmark excludes SQL, network, TLS, billing, memory/RSS and concurrency. No throughput improvement over Java has been established. `tests/fuzz/message_fuzz.cpp` is a libFuzzer entry point, not evidence of a completed fuzz campaign.
 
 ## Work required before replacement
 

@@ -25,6 +25,23 @@ API regression separately checks missing authentication, admin-only id-token rea
 
 Browser tokens are retained only in page memory; no localStorage/sessionStorage/cookie persistence is implemented. The UI is scoped to the existing local setup. These tests do not establish pentest completion or full legacy UI/business parity. See ADMIN-UI.md.
 
+## Theme update
+
+The light theme was checked in headless Microsoft Edge at 1440?1024 and 390?844 using a separately staged Release executable and the already active verified remote DB tunnel. Login, dashboard, stations, transactions, command center, access, sandbox view, system and sign-out were exercised without writes. Screenshots of the login, dashboard, commands and mobile views were visually reviewed; neither viewport produced horizontal page overflow and no uncaught JavaScript errors were observed. Navigation icons are local inline SVG paths; no external font/icon service is used. Reduced-motion preferences disable transitions.
+
+The tested executable was copied to the normal launcher path and its SHA-256 compared with the staged executable. The existing user's process was preserved by renaming its old executable into an ignored build backup; it continues to render its previous embedded theme until restarted. The temporary build output override was removed afterward. No new full protocol regression or performance measurement was required for this visual change; the earlier 94/544 results describe their earlier run.
+
+## Module restructuring validation
+
+The modular source/header layout, separate CMake implementation libraries, split server adapters and relocated test runners were rebuilt with Windows MSVC Release warnings-as-errors. The executable remains at `build/Release/ocpp_server.exe`; launcher/config/schema contracts are unchanged.
+
+- Core executable: **94 assertions passed**.
+- Architecture checker: **40 C++ files passed**; also registered with CTest and both CI jobs.
+- Isolated MariaDB integration with headless Edge administration checks: **544 assertions passed**, including JSON/WebSocket, legacy SOAP, durable commands, sandbox billing and UI scenarios.
+- `git diff --check`: passed.
+
+Linux targets and CI commands were updated, but Linux execution was not performed for this restructuring. Performance was not remeasured; the older samples below are not results for the refactored binary.
+
 ## Performance samples
 
 Host CPU: Intel Core i5-14400F, 10 cores / 16 logical processors. Client, C++ server and temporary MariaDB all run on the same Windows host; the load client is Python asyncio/websockets. Other machine workloads and storage conditions were not controlled.

@@ -44,4 +44,4 @@ print("CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED BY '"+p+"';")
 print("ALTER USER 'root'@'127.0.0.1' IDENTIFIED BY '"+p+"';")
 print("GRANT ALL ON *.* TO 'root'@'127.0.0.1';")
 PY
-python3 "$root_dir/tests/integration.py" --server "$root_dir/build/ocpp_server" --db-port "$db_port" --port "$server_port"
+python3 "$root_dir/tests/integration/integration.py" --server "$root_dir/build/ocpp_server" --db-port "$db_port" --port "$server_port"
