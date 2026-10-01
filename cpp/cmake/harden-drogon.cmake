@@ -1,0 +1,15 @@
+# Apply the reviewed, version-specific transport patch before compilation.
+# Reverse-check makes reconfiguration idempotent; changed upstream sources fail closed.
+find_package(Git REQUIRED)
+set(patch "${CMAKE_CURRENT_LIST_DIR}/../patches/drogon-1.9.13-transport.patch")
+execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${drogon_SOURCE_DIR}" apply --reverse --check "${patch}" RESULT_VARIABLE already_applied OUTPUT_QUIET ERROR_QUIET)
+if(NOT already_applied EQUAL 0)
+  execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${drogon_SOURCE_DIR}" apply --check "${patch}" RESULT_VARIABLE can_apply OUTPUT_QUIET ERROR_QUIET)
+  if(NOT can_apply EQUAL 0)
+    message(FATAL_ERROR "Drogon transport patch cannot be applied to this source revision")
+  endif()
+  execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${drogon_SOURCE_DIR}" apply "${patch}" RESULT_VARIABLE applied)
+  if(NOT applied EQUAL 0)
+    message(FATAL_ERROR "Drogon transport patch failed")
+  endif()
+endif()

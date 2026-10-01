@@ -1,0 +1,30 @@
+package de.rwth.idsg.steve.web.dto.ocpp;
+
+import lombok.Getter;
+import lombok.Setter;
+import org.joda.time.LocalDateTime;
+
+import javax.validation.constraints.Future;
+import javax.validation.constraints.Min;
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.NotNull;
+import javax.validation.constraints.Pattern;
+
+@Setter
+@Getter
+public class UpdateFirmwareParams extends MultipleChargePointSelect {
+
+    @NotBlank(message = "Location is required")
+    @Pattern(regexp = "\\S+", message = "Location cannot contain any whitespace")
+    private String location;
+
+    @Min(value = 1, message = "Retries must be at least {value}")
+    private Integer retries;
+
+    @Min(value = 1, message = "Retry Interval must be at least {value}")
+    private Integer retryInterval;
+
+    @Future(message = "Retrieve Date/Time must be in future")
+    @NotNull(message = "Retrieve Date/Time is required")
+    private LocalDateTime retrieve;
+}

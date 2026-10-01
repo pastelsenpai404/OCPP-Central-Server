@@ -1,0 +1,253 @@
+diff --git a/lib/src/WebSocketConnectionImpl.cc b/lib/src/WebSocketConnectionImpl.cc
+index cd589b6..62cfa3b 100644
+--- a/lib/src/WebSocketConnectionImpl.cc
++++ b/lib/src/WebSocketConnectionImpl.cc
+@@ -30,6 +30,11 @@ WebSocketConnectionImpl::WebSocketConnectionImpl(
+       isServer_(isServer),
+       usingMask_(false)
+ {
++    parser_.setRequireMask(isServer);
++    tcpConnectionPtr_->setHighWaterMarkCallback(
++        [](const trantor::TcpConnectionPtr &connection, size_t) {
++            connection->forceClose();
++        }, 1024 * 1024);
+ }
+ 
+ WebSocketConnectionImpl::~WebSocketConnectionImpl()
+@@ -267,160 +272,71 @@ void WebSocketConnectionImpl::disablePing()
+ 
+ bool WebSocketMessageParser::parse(trantor::MsgBuffer *buffer)
+ {
+-    // According to the rfc6455
+     gotAll_ = false;
+     while (buffer->readableBytes() >= 2)
+     {
+-        unsigned char opcode = (*buffer)[0] & 0x0f;
+-        bool isControlFrame = false;
+-        switch (opcode)
+-        {
+-            case 0:
+-                LOG_TRACE << "continuation frame";
+-                break;
+-            case 1:
+-                type_ = WebSocketMessageType::Text;
+-                break;
+-            case 2:
+-                type_ = WebSocketMessageType::Binary;
+-                break;
+-            case 8:
+-                type_ = WebSocketMessageType::Close;
+-                isControlFrame = true;
+-                break;
+-            case 9:
+-                type_ = WebSocketMessageType::Ping;
+-                isControlFrame = true;
+-                break;
+-            case 10:
+-                type_ = WebSocketMessageType::Pong;
+-                isControlFrame = true;
+-                break;
+-            default:
+-                LOG_ERROR << "Unknown frame type";
+-                return false;
+-                break;
+-        }
+-
+-        bool isFin = (((*buffer)[0] & 0x80) == 0x80);
+-        if (!isFin && isControlFrame)
+-        {
+-            // rfc6455-5.5
+-            LOG_ERROR << "Bad frame: all control frames MUST NOT be fragmented";
++        const auto first = static_cast<unsigned char>((*buffer)[0]);
++        const auto second = static_cast<unsigned char>((*buffer)[1]);
++        const bool fin = (first & 0x80) != 0;
++        const auto opcode = first & 0x0f;
++        const bool control = opcode >= 8;
++        const bool masked = (second & 0x80) != 0;
++        if ((first & 0x70) != 0 || (requireMask_ && !masked) ||
++            (opcode != 0 && opcode != 1 && opcode != 2 && opcode != 8 && opcode != 9 && opcode != 10))
+             return false;
+-        }
+-        auto secondByte = (*buffer)[1];
+-        size_t length = secondByte & 127;
+-        int isMasked = (secondByte & 0x80);
+-        if (isMasked != 0)
+-        {
+-            LOG_TRACE << "data encoded!";
+-        }
+-        else
+-            LOG_TRACE << "plain data";
+-        size_t indexFirstMask = 2;
+-
+-        if (length == 126)
++        if (control && (!fin || (second & 127) > 125)) return false;
++        size_t length = second & 127;
++        size_t header = 2;
++        if (length == 126 || length == 127)
+         {
+-            indexFirstMask = 4;
+-        }
+-        else if (length == 127)
+-        {
+-            indexFirstMask = 10;
+-        }
+-        if (indexFirstMask > 2)
+-        {
+-            if (buffer->readableBytes() < indexFirstMask)
+-            {
+-                // Not enough data yet, wait for more.
+-                return true;
+-            }
+-            if (isControlFrame)
++            header = length == 126 ? 4 : 10;
++            if (buffer->readableBytes() < header) return true;
++            if (header == 10 && (static_cast<unsigned char>((*buffer)[2]) & 0x80)) return false;
++            length = 0;
++            for (size_t i = 2; i < header; ++i)
+             {
+-                // rfc6455-5.5
+-                LOG_ERROR << "Bad frame: all control frames MUST have a "
+-                             "payload length "
+-                             "of 125 bytes or less";
+-                return false;
+-            }
+-            if (indexFirstMask == 4)
+-            {
+-                length = (unsigned char)(*buffer)[2];
+-                length = (length << 8) + (unsigned char)(*buffer)[3];
+-            }
+-            else if (indexFirstMask == 10)
+-            {
+-                length = 0;
+-                for (int i = 2; i <= 9; ++i)
+-                {
+-                    if (length > ((std::numeric_limits<size_t>::max)() >> 8))
+-                    {
+-                        LOG_ERROR
+-                            << "Payload length too large to handle safely";
+-                        return false;
+-                    }
+-                    length = (length << 8) + (unsigned char)(*buffer)[i];
+-                }
+-            }
+-            else
+-            {
+-                LOG_ERROR << "Websock parsing failed!";
+-                return false;
++                if (length > ((std::numeric_limits<size_t>::max)() >> 8)) return false;
++                length = (length << 8) | static_cast<unsigned char>((*buffer)[i]);
+             }
++            if ((header == 4 && length < 126) || (header == 10 && length < 65536)) return false;
+         }
+-        if (isMasked != 0)
++        const auto limit = HttpAppFrameworkImpl::instance().getClientMaxWebSocketMessageSize();
++        if (length > limit || (!control && fragments_.size() > limit - length)) return false;
++        if (!control && ((opcode == 0 && !fragmented_) || (opcode != 0 && fragmented_))) return false;
++        const size_t dataStart = header + (masked ? 4 : 0);
++        if (buffer->readableBytes() < dataStart + length) return true;
++        std::string data(length, '\0');
++        const auto raw = buffer->peek();
++        for (size_t i = 0; i < length; ++i)
++            data[i] = masked ? raw[dataStart + i] ^ raw[header + i % 4] : raw[dataStart + i];
++        buffer->retrieve(dataStart + length);
++        if (control)
+         {
+-            // The message is sent by the client, check the length
+-            if (length > HttpAppFrameworkImpl::instance()
+-                             .getClientMaxWebSocketMessageSize())
+-            {
+-                LOG_ERROR << "The size of the WebSocket message is too large!";
+-                buffer->retrieveAll();
+-                return false;
+-            }
+-            if (buffer->readableBytes() >= (indexFirstMask + 4 + length))
+-            {
+-                auto masks = buffer->peek() + indexFirstMask;
+-                auto indexFirstDataByte = indexFirstMask + 4;
+-                auto rawData = buffer->peek() + indexFirstDataByte;
+-                auto oldLen = message_.length();
+-                message_.resize(oldLen + length);
+-                for (size_t i = 0; i < length; ++i)
+-                {
+-                    message_[oldLen + i] = (rawData[i] ^ masks[i % 4]);
+-                }
+-                buffer->retrieve(indexFirstMask + 4 + length);
+-                if (isFin)
+-                {
+-                    gotAll_ = true;
+-                    return true;
+-                }
+-            }
+-            else
+-            {
+-                // Not enough data yet, wait for more.
+-                return true;
+-            }
++            if (opcode == 8 && length == 1) return false;
++            type_ = opcode == 8 ? WebSocketMessageType::Close : opcode == 9 ? WebSocketMessageType::Ping : WebSocketMessageType::Pong;
++            message_ = std::move(data);
++            gotAll_ = true;
++            return true;
+         }
+-        else
++        if (opcode != 0)
++            fragmentType_ = opcode == 1 ? WebSocketMessageType::Text : WebSocketMessageType::Binary;
++        if (!fin)
+         {
+-            if (buffer->readableBytes() >= (indexFirstMask + length))
+-            {
+-                auto rawData = buffer->peek() + indexFirstMask;
+-                message_.append(rawData, length);
+-                buffer->retrieve(indexFirstMask + length);
+-                if (isFin)
+-                {
+-                    gotAll_ = true;
+-                    return true;
+-                }
+-            }
+-            else
+-            {
+-                // Not enough data yet, wait for more.
+-                return true;
+-            }
++            fragmented_ = true;
++            fragments_.append(data);
++            continue;
++        }
++        type_ = fragmentType_;
++        if (fragmented_)
++        {
++            fragments_.append(data);
++            message_.swap(fragments_);
++            fragments_.clear();
++            fragmented_ = false;
+         }
++        else message_ = std::move(data);
++        gotAll_ = true;
++        return true;
+     }
+     return true;
+ }
+diff --git a/lib/src/WebSocketConnectionImpl.h b/lib/src/WebSocketConnectionImpl.h
+index 8c71a9c..f4891f0 100644
+--- a/lib/src/WebSocketConnectionImpl.h
++++ b/lib/src/WebSocketConnectionImpl.h
+@@ -29,6 +29,7 @@ using WebSocketConnectionImplPtr = std::shared_ptr<WebSocketConnectionImpl>;
+ class WebSocketMessageParser
+ {
+   public:
++    void setRequireMask(bool value) { requireMask_ = value; }
+     bool parse(trantor::MsgBuffer *buffer);
+ 
+     bool gotAll(std::string &message, WebSocketMessageType &type)
+@@ -42,6 +43,10 @@ class WebSocketMessageParser
+     }
+ 
+   private:
++    bool requireMask_{false};
++    bool fragmented_{false};
++    std::string fragments_;
++    WebSocketMessageType fragmentType_;
+     std::string message_;
+     WebSocketMessageType type_;
+     bool gotAll_{false};

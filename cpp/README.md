@@ -1,0 +1,121 @@
+# C++ OCPP migration
+
+**Status: partial migration, not a production replacement for the Java server.**
+
+This project builds a C++20 OCPP 1.6 JSON service for Windows and Linux. It preserves the existing MySQL/MariaDB table names and writes additive runtime tables. The Java application and its configuration are unchanged. Billing processing, legacy protocols, and the JSP administration application remain to be migrated. Do not point chargers or billing at this executable until the parity work below is complete.
+
+## Implemented
+
+- Ten incoming OCPP 1.6 actions: BootNotification, Heartbeat, Authorize, StartTransaction, StopTransaction, MeterValues, StatusNotification, FirmwareStatusNotification, DiagnosticsStatusNotification, DataTransfer.
+- Request/response schema validation, strict envelopes, duplicate-member rejection, nesting/size/sample bounds, UTC conversion, integer range checks.
+- Per-station random Basic credentials, reader/operator/admin bearer credentials, registration checks, transaction ownership checks, denial of browser-origin requests.
+- Prepared SQL statements, bounded connection pool, explicit TLS verification for remote DB connections, atomic transaction/replay/outbox writes.
+- Persistent request-ID replay for mutations and semantic start/stop deduplication, with station-row locking to serialize database changes. Authorization, boot and heartbeat responses always reflect current state rather than a cached decision/time.
+- Bounded FIFO worker lanes, per-session in-flight limits, rate limiting, correlated outbound commands, disconnect/error/30-second timeout handling.
+- Seventeen outbound commands. GetDiagnostics and UpdateFirmware are deliberately disabled until destination policy and integration tests exist. The 78 bundled schemas also include security extensions whose handlers are **not** implemented.
+- Paginated station/tag/transaction/reservation/status/audit reads; authenticated station provisioning and tag updates; JSON counters and liveness/readiness endpoints.
+- A pinned Drogon transport patch for aggregate fragmented-message limits, masked client frames, interleaved control frames, and a 1 MiB send-buffer high-water close.
+
+## Build on Windows
+
+Requires Git, Visual Studio 2022 C++ Build Tools with its CMake component, and internet access for pinned sources. Dependencies install under `.deps/`; no system compiler or database service is installed.
+
+```powershell
+./scripts/build-windows.ps1
+```
+
+Outputs: `build/Release/ocpp_server.exe`, `ocpp_tests.exe`, `ocpp_benchmark.exe`, `libmariadb.dll` and `z.dll`. Keep these two dependency DLLs with the executables. The script runs core tests. Package only those artifacts and required notices; a reused build directory can contain obsolete DLLs from earlier dependency versions.
+
+### Run on Windows
+
+```powershell
+./run-server.ps1 -InitConfig
+notepad ./config.local.json
+./run-server.ps1 -CheckConfig
+./run-server.ps1
+```
+
+Initialization creates `config.local.json` with random API tokens and a station secret for `CP01` (override with `-StationId`). It refuses to overwrite an existing file. Fill in database name, user and password; prepare the database as described below. Keep this ignored file private because it contains credentials. The launcher checks configuration, executable, DLLs and schemas, then runs in the current console; stop with Ctrl+C. `-CheckConfig` does not connect to the database. Use `-Build` to build before launching, `-Configuration Debug` for a debug build, or `-ConfigPath C:/path/config.json` for another configuration. Relative CA paths resolve beside the configuration file. Environment settings apply only to the current process and are restored when the server exits. The script works from any working directory.
+
+## Build on Linux
+
+For Ubuntu 24.04 or a compatible environment:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y build-essential cmake git ninja-build libjsoncpp-dev zlib1g-dev libmariadb-dev libssl-dev uuid-dev
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel 4
+ctest --test-dir build --output-on-failure
+```
+
+Sanitizer build: configure a separate directory with `-DOCPP_SANITIZERS=ON` and `-DCMAKE_BUILD_TYPE=RelWithDebInfo`. The included GitHub workflow prepares Windows and Linux checks; it has not been run in this workspace. Linux execution has **not** been verified locally.
+
+## Database and configuration
+
+First restore a backup of the existing schema into an isolated database. Apply `migrations/001_cpp_runtime.sql` explicitly to that database. The program never auto-migrates or imports the legacy database. SQL compatibility is tested against the schema dumps in `../../billing-user-backend/database_ref/ocpptest`; validate the live schema separately.
+
+Set these environment variables through your service/secret manager:
+
+| Variable | Meaning |
+| --- | --- |
+| `OCPP_DB_NAME`, `OCPP_DB_USER`, `OCPP_DB_PASSWORD` | Database credentials; no defaults |
+| `OCPP_DB_HOST`, `OCPP_DB_PORT` | Defaults `127.0.0.1`, `3306` |
+| `OCPP_DB_CA` | Trusted CA PEM path, required for remote databases; verified TLS enforced |
+| `OCPP_STATION_SECRETS` | JSON object mapping provisioned station IDs to unique random secrets |
+| `OCPP_READ_TOKEN`, `OCPP_OPERATOR_TOKEN`, `OCPP_ADMIN_TOKEN` | Three distinct random API credentials |
+| `OCPP_PORT`, `OCPP_WORKERS` | Defaults `5003`, `4`; workers limited to 32 |
+
+Each station secret and API token must be **32 cryptographically random bytes encoded as 64 lowercase hex characters**. Generate with a secret manager or Python `secrets.token_hex(32)`; do not use repeated characters or human passwords. The syntax check cannot measure entropy. Station IDs allow ASCII letters, digits, `_`, `-`, up to 64 characters. Configuration is read at startup; rotating credentials currently requires a restart.
+
+Run with the schema directory as its sole argument:
+
+```powershell
+./build/Release/ocpp_server.exe ./schemas
+```
+
+The listener binds **only to loopback**. Charger endpoints are `/ocpp/{station}`, `/steve/websocket/CentralSystemService/{station}`, and `/develop/websocket/CentralSystemService/{station}`. Clients must send exactly `Sec-WebSocket-Protocol: ocpp1.6` and `Authorization: Basic base64(station:secret)`.
+
+Use a separately operated TLS gateway for public WSS. `deploy/Caddyfile` is an untested starter configuration for both platforms that exposes charger routes only. Keep administrative REST access behind a private gateway. Local Basic and bearer credentials traverse loopback in plaintext; do not forward the backend port publicly. Configure gateway connection/rate/time limits; the application's peer IP is the loopback proxy address. The sample and systemd unit have not been deployed or validated here.
+
+## REST interface
+
+All REST endpoints require `Authorization: Bearer <token>`, except `/health/live` and `/health/ready`. No legacy GET mutations or login/session flows are provided. These are new contracts, not drop-in equivalents to the old `/dev` and `/api/v1` DTOs.
+
+| Method/path | Role | Payload/response |
+| --- | --- | --- |
+| GET `/api/v1/{resource}?offset=0` | reader | At most 100 rows; chargepoints, transactions, ocppTags, reservations, connectorStatus |
+| GET `/api/v1/audit` | admin | Command/admin action records |
+| GET `/api/v1/metrics` | reader | frames, errors, overloads, active sessions |
+| POST `/api/v1/chargepoints` | admin | `{"chargeBoxId":"CP01"}`; credentials must already be configured |
+| POST `/api/v1/ocppTags` | admin | `{"idTag":"TAG","maxActiveTransactions":1}`; optional parentIdTag, expiryDate |
+| POST `/api/v1/chargepoints/{station}/commands/{action}` | operator | OCPP request payload; waits asynchronously up to 30 seconds for validated result |
+
+SQL result fields currently use database column names and string/null values. This differs from legacy DTOs. Audit records identify actions/stations/command IDs, not individual administrators; production identity integration and outcome auditing remain outstanding. Like the customized Java code, tag authorization does not enforce positive `maxActiveTransactions` counts; zero blocks a tag, negative permits unlimited. Unknown offline transaction tags are recorded blocked to avoid losing transaction records.
+
+## Tests and measured limits
+
+Core tests cover malformed input, schemas, timestamps, access roles, rate limits, worker capacity and ordering. Integration tests run against a newly named temporary database and clean up only that database. The Windows helper starts a separate MariaDB process on an ephemeral loopback port, with a new data directory and a random root password; it does not register a Windows service or touch the original databases.
+
+```powershell
+python -m pip install websockets==15.0.1 PyMySQL==1.1.2
+./scripts/test-windows-integration.ps1 -MariaDbDirectory C:/path/to/portable/mariadb
+./scripts/test-windows-integration.ps1 -MariaDbDirectory C:/path/to/portable/mariadb -LoadStations 100
+./build/Release/ocpp_benchmark.exe ./schemas
+```
+
+The integration fixture imports **schema definitions only** from the sibling reference dumps. Those fixtures are not bundled into a deployed installation. On Linux, run `tests/integration.py --server build/ocpp_server --db-port <isolated-local-db-port>` with `OCPP_TEST_DB_PASSWORD` set for that local test server.
+
+See `docs/VALIDATION.md` for actual results. The microbenchmark excludes SQL, network, TLS, billing, memory/RSS and concurrency. No throughput improvement over Java has been established. `tests/fuzz.cpp` is a libFuzzer entry point, not evidence of a completed fuzz campaign.
+
+## Work required before replacement
+
+See `docs/PARITY.md` and the complete Java inventory. Outstanding work includes OCPP 1.2/1.5 JSON and SOAP, complete admin CRUD/forms/sessions, legacy DTO/endpoint adapters, task/reservation/profile persistence, notification/settings/export functions, and **all custom billing/parking/payment/paid-energy-stop processing**.
+
+The transactional outbox only captures raw events. It has **no delivery worker** and must not be represented as working billing integration. Implement and test the documented nine billing calls and six billing SQL workflows with business fixtures. Avoid automatic HTTP retries of financial operations until the receiving API provides idempotency and reconciliation.
+
+Replay, outbox and audit tables require a reviewed retention/archival policy. No automatic purge is provided: removing replay records too soon can duplicate effects on late retries. Partition/prune legacy telemetry only after measuring its access patterns. The station-row lock deliberately favors consistency; workers still execute blocking SQL, and the architecture is not a demonstrated maximum-throughput design. Multi-instance routing, HA, tenant-aware identity, credential storage/rotation, detailed audit, security-profile 3, and disaster recovery are not complete.
+
+Production release requires parity against representative charger traces, financial reconciliation, Windows and Linux system tests, ASan/UBSan/fuzz runs, steady-state and soak benchmarks against Java, an SBOM/dependency vulnerability review, and independent pentesting of the actual deployment. No pentest pass or OCPP certification is claimed.
+
+Upstream dependencies retain their licenses. The MariaDB connector is linked dynamically; ship the applicable notices and satisfy its LGPL obligations. The legacy project's missing license/header files also need ownership/license review before redistribution.
