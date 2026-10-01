@@ -12,13 +12,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Dependencies
-        run: sudo apt-get update && sudo apt-get install -y libjsoncpp-dev zlib1g-dev libmariadb-dev libssl-dev uuid-dev ninja-build
+        run: sudo apt-get update && sudo apt-get install -y libjsoncpp-dev zlib1g-dev libmariadb-dev libssl-dev libcurl4-openssl-dev uuid-dev ninja-build mariadb-server mariadb-client python3-venv
       - name: Configure
         run: cmake -S cpp -B cpp/build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DOCPP_SANITIZERS=ON
       - name: Build
         run: cmake --build cpp/build --parallel 2
       - name: Core checks
         run: ctest --test-dir cpp/build --output-on-failure
+      - name: Integration dependencies
+        run: python3 -m venv cpp/.venv && cpp/.venv/bin/pip install websockets==15.0.1 PyMySQL==1.1.2
+      - name: Isolated database integration
+        run: PATH="$PWD/cpp/.venv/bin:$PATH" bash cpp/scripts/test-linux-integration.sh
   windows:
     runs-on: windows-2022
     steps:

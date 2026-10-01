@@ -8,6 +8,20 @@ if(-not $vs){throw 'Visual Studio C++ Build Tools required'}
 $cmake=Join-Path $vs 'Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe'
 $prefix=Join-Path $Root '.deps/install'
 $zlibName=if($Configuration -eq 'Debug'){'zd'}else{'z'}
+function Prepare-BuildDirectory([string]$Path, [string]$Source) {
+  $cache = Join-Path $Path 'CMakeCache.txt'
+  if (-not (Test-Path -LiteralPath $cache)) { return }
+  $line = Get-Content -LiteralPath $cache | Where-Object { $_ -like 'CMAKE_HOME_DIRECTORY:INTERNAL=*' } | Select-Object -First 1
+  if (-not $line) { return }
+  $cachedSource = $line.Substring('CMAKE_HOME_DIRECTORY:INTERNAL='.Length).Replace('/', '\')
+  if ([IO.Path]::GetFullPath($cachedSource) -eq [IO.Path]::GetFullPath($Source)) { return }
+  $absoluteRoot = [IO.Path]::GetFullPath($Root).TrimEnd('\') + '\'
+  $absoluteTarget = (Resolve-Path -LiteralPath $Path).ProviderPath
+  if (-not $absoluteTarget.StartsWith($absoluteRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Build directory is outside this project.' }
+  $archiveName = (Split-Path -Leaf $absoluteTarget) + '-before-relocation-' + [Guid]::NewGuid().ToString('N')
+  Write-Host "Preserving relocated build cache as $archiveName"
+  Rename-Item -LiteralPath $absoluteTarget -NewName $archiveName
+}
 function Run-CMake([string[]]$Arguments){
   $savedPreference=$ErrorActionPreference
   $ErrorActionPreference='Continue'
@@ -29,6 +43,7 @@ Clone-Pinned jsoncpp https://github.com/open-source-parsers/jsoncpp.git 89e2973c
 Clone-Pinned zlib https://github.com/madler/zlib.git da607da739fa6047df13e66a2af6b8bec7c2a498
 Clone-Pinned mariadb https://github.com/mariadb-corporation/mariadb-connector-c.git c61bdb5ac1cd1b41210dd57bb14fa377e555ce0c
 foreach($dep in @('jsoncpp','zlib','mariadb')){
+  Prepare-BuildDirectory "$Root/.deps/build-$dep" "$Root/.deps/$dep"
   $args=@('-S',"$Root/.deps/$dep",'-B',"$Root/.deps/build-$dep",'-G','Visual Studio 17 2022','-A','x64',"-DCMAKE_INSTALL_PREFIX=$prefix",'-DBUILD_SHARED_LIBS=OFF')
   if($dep -eq 'jsoncpp'){$args+=@('-DJSONCPP_WITH_TESTS=OFF','-DJSONCPP_WITH_POST_BUILD_UNITTEST=OFF','-DJSONCPP_WITH_EXAMPLE=OFF')}
   if($dep -eq 'zlib'){$args+=@('-DZLIB_BUILD_TESTING=OFF')}
@@ -38,7 +53,8 @@ foreach($dep in @('jsoncpp','zlib','mariadb')){
   Run-CMake @('--install',"$Root/.deps/build-$dep",'--config',$Configuration)
 }
 $args=@('-S',$Root,'-B',"$Root/build",'-G','Visual Studio 17 2022','-A','x64',"-DCMAKE_PREFIX_PATH=$prefix",'-DCMAKE_POLICY_VERSION_MINIMUM=3.5',"-DZLIB_LIBRARY_RELEASE=$prefix/lib/$zlibName.lib","-DZLIB_LIBRARY_DEBUG=$prefix/lib/$zlibName.lib","-DZLIB_LIBRARY=$prefix/lib/$zlibName.lib","-DZLIB_INCLUDE_DIR=$prefix/include")
-foreach($pair in @(@('json','json'),@('schema_validator','schema-validator'),@('drogon','drogon'))){
+Prepare-BuildDirectory "$Root/build" $Root
+foreach($pair in @(@('json','json'),@('schema_validator','schema-validator'),@('drogon','drogon'),@('pugixml','pugixml'))){
   $path=Join-Path $Root ".deps/$($pair[1])"
   if(Test-Path "$path/CMakeLists.txt"){$args+="-DFETCHCONTENT_SOURCE_DIR_$($pair[0].ToUpper())=$path"}
 }

@@ -29,9 +29,12 @@ std::string utc_now();
 std::string sql_time(std::string_view rfc3339);
 class Schemas {
     std::map<std::string, std::unique_ptr<nlohmann::json_schema::json_validator>> validators_;
+    bool version201_;
+    bool legacy_;
 
   public:
-    explicit Schemas(const std::filesystem::path &directory);
+    explicit Schemas(const std::filesystem::path &directory, bool version201 = false,
+                     std::size_t expected_count = 0);
     void validate(std::string_view action, const Json &payload, bool response = false) const;
     bool contains(std::string_view action, bool response = false) const;
 };

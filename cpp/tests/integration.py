@@ -41,19 +41,17 @@ def api(port, path, token=None, body=None):
     return response.status, json.loads(response.read())
 
 def fixture(cursor):
-    # Import schema definitions from the sibling reference dumps, never their data.
-    reference = ROOT.parents[1] / "billing-user-backend/database_ref/ocpptest"
-    for table in ("address", "charge_box", "ocpp_tag", "connector", "connector_status",
-                  "transaction_start", "transaction_stop", "connector_meter_value", "reservation", "settings"):
-        text = (reference / (table + ".sql")).read_text(encoding="utf-8-sig")
-        start = text.index("CREATE TABLE IF NOT EXISTS")
-        end = text.index(";", start)
-        cursor.execute(text[start:end])
-    for statement in (ROOT / "migrations/001_cpp_runtime.sql").read_text().split(";"):
-        lines = [line for line in statement.splitlines() if not line.startswith("--")]
-        sql = "\n".join(lines).strip()
-        if sql:
-            cursor.execute(sql)
+    # Checked-in definitions extracted from the legacy reference, without historical data.
+    text=(ROOT/'tests/fixtures/legacy-schema.sql').read_text(encoding='utf-8')
+    text='\n'.join(line for line in text.splitlines() if not line.lstrip().startswith('--'))
+    for sql in text.split(';'):
+        if sql.strip(): cursor.execute(sql)
+    for migration in sorted((ROOT / "migrations").glob("*.sql")):
+        text='\n'.join(line for line in migration.read_text().splitlines() if not line.lstrip().startswith('--'))
+        for statement in text.split(";"):
+            lines = [line for line in statement.splitlines() if not line.startswith("--")]
+            sql = "\n".join(lines).strip()
+            if sql: cursor.execute(sql)
     cursor.execute("INSERT INTO settings(app_id,heartbeat_interval_in_seconds) VALUES('test',60)")
     cursor.execute("INSERT INTO charge_box(charge_box_id) VALUES('CP_TEST'),('OTHER')")
     cursor.execute("INSERT INTO ocpp_tag(id_tag,max_active_transaction_count) VALUES('TAG',1)")
@@ -61,7 +59,7 @@ def fixture(cursor):
 async def scenarios(port, tokens, password, db):
     uri = f"ws://127.0.0.1:{port}/ocpp/CP_TEST"
     header = {"Authorization": "Basic " + base64.b64encode(("CP_TEST:"+password).encode()).decode()}
-    for auth, protocols in (({}, ["ocpp1.6"]), (header, ["ocpp1.5"])):
+    for auth, protocols in (({}, ["ocpp1.6"]), (header, ["ocpp1.7"])):
         try:
             async with connect(uri, additional_headers=auth, subprotocols=protocols):
                 check(False, "unauthorized handshake allowed")
@@ -215,17 +213,25 @@ def main():
         raise ValueError("Invalid load test limits")
     station_passwords={f"LOAD_{n}":secrets.token_hex(32) for n in range(args.load_stations)}
     process=None
+    from soap_device import SoapDevice,outgoing_soap
+    soap_passwords={station:secrets.token_hex(32) for station in ('SOAP_12','SOAP_15','SOAP_16')}
+    device=SoapDevice(soap_passwords)
+    device.start()
     try:
         with db.cursor() as cur:
             cur.execute("CREATE DATABASE "+name+" CHARACTER SET utf8mb4")
             cur.execute("USE "+name)
             fixture(cur)
+            cur.executemany("INSERT INTO charge_box(charge_box_id) VALUES(%s)",[(station,) for station in soap_passwords])
             if station_passwords:
                 cur.executemany("INSERT INTO charge_box(charge_box_id) VALUES(%s)",[(station,) for station in station_passwords])
         env=dict(os.environ,OCPP_DB_NAME=name,OCPP_DB_USER="root",OCPP_DB_PASSWORD=root_password,
             OCPP_DB_HOST="127.0.0.1",OCPP_DB_PORT=str(args.db_port),OCPP_PORT=str(args.port),
             OCPP_READ_TOKEN=tokens["read"],OCPP_OPERATOR_TOKEN=tokens["operator"],OCPP_ADMIN_TOKEN=tokens["admin"],
-            OCPP_STATION_SECRETS=json.dumps(station_passwords or {"CP_TEST":password,"OTHER":password[::-1]}))
+            OCPP_TRANSFER_ORIGINS='["https://transfers.example.test"]',OCPP_DB_CA='',
+            OCPP_SOAP_ORIGINS=json.dumps([device.origin]),
+            OCPP_SOAP_ENDPOINTS=json.dumps({station:{'version':version,'url':device.origin+'/'+version} for station,version in [('SOAP_12','1.2'),('SOAP_15','1.5'),('SOAP_16','1.6')]}),
+            OCPP_STATION_SECRETS=json.dumps((station_passwords or {"CP_TEST":password,"OTHER":password[::-1]})|soap_passwords))
         flags=subprocess.CREATE_NO_WINDOW if os.name=="nt" else 0
         with (ROOT/"integration-server.log").open("w") as log:
             process=subprocess.Popen([str(args.server.resolve()),str(ROOT/"schemas")],env=env,stdout=log,stderr=log,creationflags=flags,cwd=ROOT)
@@ -246,8 +252,46 @@ def main():
                 asyncio.run(load_scenario(args.port,station_passwords,args.load_rounds,args.load_rate))
             else:
                 asyncio.run(scenarios(args.port,tokens,password,db))
+                from protocol_scenarios import protocols
+                asyncio.run(protocols(args.port,tokens,password,db,api,check))
+                from legacy_scenarios import legacy
+                asyncio.run(legacy(args.port,tokens,password,db,api,check))
+                asyncio.run(outgoing_soap(args.port,tokens,device,api,check))
+                from billing_scenarios import sandbox
+                sandbox(args.port,tokens,db,api,check)
+                # Crash after confirmed dispatch and before reply. Startup must retain
+                # an uncertain outcome, without sending the command a second time.
+                from concurrent.futures import ThreadPoolExecutor
+                received=len(device.requests)
+                device.mode='hold'
+                with ThreadPoolExecutor(max_workers=1) as client:
+                    pending=client.submit(api,args.port,'/api/v1/chargepoints/SOAP_16/commands/Reset',tokens['operator'],{'type':'Soft'})
+                    for _ in range(100):
+                        if len(device.requests)>received: break
+                        time.sleep(.05)
+                    else: raise AssertionError('crash fixture command did not reach device')
+                    with db.cursor() as cursor:
+                        cursor.execute("SELECT command_id FROM cpp_command_task WHERE station_id='SOAP_16' AND state='Pending' ORDER BY created_at DESC LIMIT 1")
+                        crash_id=cursor.fetchone()[0]
+                    process.kill();process.wait(timeout=10)
+                    device.mode='normal';device.release.set()
+                    try: pending.result(timeout=5)
+                    except Exception: check(True,'client observes interrupted command during crash')
+                    else: check(False,'crash unexpectedly returned a known command result')
+                process=subprocess.Popen([str(args.server.resolve()),str(ROOT/'schemas')],env=env,stdout=log,stderr=log,creationflags=flags,cwd=ROOT)
+                for _ in range(100):
+                    if process.poll() is not None: raise RuntimeError('Restarted server exited')
+                    try:
+                        if api(args.port,'/health/ready')[0]==200: break
+                    except OSError: pass
+                    time.sleep(.1)
+                else: raise AssertionError('restarted server not ready')
+                task=api(args.port,'/api/v1/tasks/'+crash_id,tokens['operator'])
+                check(task[0]==200 and task[1]['state']=='Uncertain','durable uncertain command recovery after actual process crash')
+                check(len(device.requests)==received+1,'recovery never resends an ambiguous command')
                 print(f"PASS: {CHECKS} integration assertions")
     finally:
+        device.close()
         if process:
             process.terminate()
             try:process.wait(timeout=10)

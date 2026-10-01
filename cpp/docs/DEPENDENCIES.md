@@ -11,6 +11,7 @@ Checked 2026-10-02 by OSV commit queries. This is a limited advisory lookup; it 
 | JsonCpp 1.9.6 | 89e2973c754a9c02a49974d839779b151e95afd6 | No advisory returned for this commit |
 | nlohmann JSON 3.12.0 | 55f93686c01528224f448c19128836e7df245f72 | No advisory returned for this commit |
 | json-schema-validator 2.3.0 | 349cba9f7e3cb423bbc1811bdd9f6770f520b468 | No advisory returned for this commit |
+| pugixml 1.16 | c8033ce9d039e7f9d134877c363397b3cfe20816 | No advisory returned for this commit in the updated lookup; DTD/processing instructions are rejected by the application |
 
 Review [Drogon issue 2575](https://github.com/drogonframework/drogon/issues/2575), [issue 2576](https://github.com/drogonframework/drogon/issues/2576), and the [zlib 1.3.2 audit-fix release](https://github.com/madler/zlib/releases/tag/v1.3.2). Original zlib lookup returned CVE-2026-22184 (standalone contrib utility) and CVE-2026-27171/CVE-2026-3381; 1.3.2 contains the audit fixes.
 

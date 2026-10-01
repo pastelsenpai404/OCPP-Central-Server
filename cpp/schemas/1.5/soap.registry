@@ -1,0 +1,2098 @@
+{
+  "definitions": {
+    "IdToken": {
+      "type": "string",
+      "maxLength": 20
+    },
+    "AuthorizationStatus": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Accepted",
+        "Blocked",
+        "Expired",
+        "Invalid",
+        "ConcurrentTx"
+      ]
+    },
+    "IdTagInfo": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/AuthorizationStatus"
+        },
+        "expiryDate": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "parentIdTag": {
+          "$ref": "#/definitions/IdToken"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ]
+    },
+    "ChargeBoxSerialNumber": {
+      "type": "string",
+      "maxLength": 25
+    },
+    "ChargePointModel": {
+      "type": "string",
+      "maxLength": 20
+    },
+    "ChargePointSerialNumber": {
+      "type": "string",
+      "maxLength": 25
+    },
+    "ChargePointVendor": {
+      "type": "string",
+      "maxLength": 20
+    },
+    "FirmwareVersion": {
+      "type": "string",
+      "maxLength": 50
+    },
+    "IccidString": {
+      "type": "string",
+      "maxLength": 20
+    },
+    "ImsiString": {
+      "type": "string",
+      "maxLength": 20
+    },
+    "MeterSerialNumber": {
+      "type": "string",
+      "maxLength": 25
+    },
+    "MeterType": {
+      "type": "string",
+      "maxLength": 25
+    },
+    "AuthorizeRequest": {
+      "type": "object",
+      "properties": {
+        "idTag": {
+          "$ref": "#/definitions/IdToken"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "idTag"
+      ]
+    },
+    "AuthorizeResponse": {
+      "type": "object",
+      "properties": {
+        "idTagInfo": {
+          "$ref": "#/definitions/IdTagInfo"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "idTagInfo"
+      ]
+    },
+    "StartTransactionRequest": {
+      "type": "object",
+      "properties": {
+        "connectorId": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "idTag": {
+          "$ref": "#/definitions/IdToken"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "meterStart": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "reservationId": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "connectorId",
+        "idTag",
+        "timestamp",
+        "meterStart"
+      ]
+    },
+    "StartTransactionResponse": {
+      "type": "object",
+      "properties": {
+        "transactionId": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "idTagInfo": {
+          "$ref": "#/definitions/IdTagInfo"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "transactionId",
+        "idTagInfo"
+      ]
+    },
+    "TransactionData": {
+      "type": "object",
+      "properties": {
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MeterValue"
+          },
+          "minItems": 0,
+          "maxItems": 512
+        }
+      },
+      "additionalProperties": false
+    },
+    "StopTransactionRequest": {
+      "type": "object",
+      "properties": {
+        "transactionId": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "idTag": {
+          "$ref": "#/definitions/IdToken"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "meterStop": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "transactionData": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TransactionData"
+          },
+          "minItems": 0,
+          "maxItems": 512
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "transactionId",
+        "timestamp",
+        "meterStop"
+      ]
+    },
+    "StopTransactionResponse": {
+      "type": "object",
+      "properties": {
+        "idTagInfo": {
+          "$ref": "#/definitions/IdTagInfo"
+        }
+      },
+      "additionalProperties": false
+    },
+    "HeartbeatRequest": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "HeartbeatResponse": {
+      "type": "object",
+      "properties": {
+        "currentTime": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "currentTime"
+      ]
+    },
+    "ReadingContext": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Interruption.Begin",
+        "Interruption.End",
+        "Sample.Clock",
+        "Sample.Periodic",
+        "Transaction.Begin",
+        "Transaction.End"
+      ]
+    },
+    "Measurand": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Energy.Active.Export.Register",
+        "Energy.Active.Import.Register",
+        "Energy.Reactive.Export.Register",
+        "Energy.Reactive.Import.Register",
+        "Energy.Active.Export.Interval",
+        "Energy.Active.Import.Interval",
+        "Energy.Reactive.Export.Interval",
+        "Energy.Reactive.Import.Interval",
+        "Power.Active.Export",
+        "Power.Active.Import",
+        "Power.Reactive.Export",
+        "Power.Reactive.Import",
+        "Current.Export",
+        "Current.Import",
+        "Voltage",
+        "Temperature"
+      ]
+    },
+    "ValueFormat": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Raw",
+        "SignedData"
+      ]
+    },
+    "UnitOfMeasure": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Wh",
+        "kWh",
+        "varh",
+        "kvarh",
+        "W",
+        "kW",
+        "var",
+        "kvar",
+        "Amp",
+        "Volt",
+        "Celsius"
+      ]
+    },
+    "Location": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Inlet",
+        "Outlet",
+        "Body"
+      ]
+    },
+    "MeterValue": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "value": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string",
+                "maxLength": 4096
+              },
+              "context": {
+                "$ref": "#/definitions/ReadingContext"
+              },
+              "format": {
+                "$ref": "#/definitions/ValueFormat"
+              },
+              "measurand": {
+                "$ref": "#/definitions/Measurand"
+              },
+              "location": {
+                "$ref": "#/definitions/Location"
+              },
+              "unit": {
+                "$ref": "#/definitions/UnitOfMeasure"
+              }
+            },
+            "additionalProperties": false,
+            "x-xmlFields": [
+              {
+                "name": "value",
+                "text": true
+              },
+              {
+                "name": "context",
+                "attribute": true
+              },
+              {
+                "name": "format",
+                "attribute": true
+              },
+              {
+                "name": "measurand",
+                "attribute": true
+              },
+              {
+                "name": "location",
+                "attribute": true
+              },
+              {
+                "name": "unit",
+                "attribute": true
+              }
+            ],
+            "required": [
+              "value"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 512
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "timestamp",
+        "value"
+      ]
+    },
+    "MeterValuesRequest": {
+      "type": "object",
+      "properties": {
+        "connectorId": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "transactionId": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MeterValue"
+          },
+          "minItems": 0,
+          "maxItems": 512
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "connectorId"
+      ]
+    },
+    "MeterValuesResponse": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "BootNotificationRequest": {
+      "type": "object",
+      "properties": {
+        "chargePointVendor": {
+          "$ref": "#/definitions/ChargePointVendor"
+        },
+        "chargePointModel": {
+          "$ref": "#/definitions/ChargePointModel"
+        },
+        "chargePointSerialNumber": {
+          "$ref": "#/definitions/ChargePointSerialNumber"
+        },
+        "chargeBoxSerialNumber": {
+          "$ref": "#/definitions/ChargeBoxSerialNumber"
+        },
+        "firmwareVersion": {
+          "$ref": "#/definitions/FirmwareVersion"
+        },
+        "iccid": {
+          "$ref": "#/definitions/IccidString"
+        },
+        "imsi": {
+          "$ref": "#/definitions/ImsiString"
+        },
+        "meterType": {
+          "$ref": "#/definitions/MeterType"
+        },
+        "meterSerialNumber": {
+          "$ref": "#/definitions/MeterSerialNumber"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "chargePointVendor",
+        "chargePointModel"
+      ]
+    },
+    "RegistrationStatus": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Accepted",
+        "Rejected"
+      ]
+    },
+    "BootNotificationResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/RegistrationStatus"
+        },
+        "currentTime": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "heartbeatInterval": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "currentTime",
+        "heartbeatInterval"
+      ]
+    },
+    "ChargePointErrorCode": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "ConnectorLockFailure",
+        "HighTemperature",
+        "Mode3Error",
+        "NoError",
+        "PowerMeterFailure",
+        "PowerSwitchFailure",
+        "ReaderFailure",
+        "ResetFailure",
+        "GroundFailure",
+        "OverCurrentFailure",
+        "UnderVoltage",
+        "WeakSignal",
+        "OtherError"
+      ]
+    },
+    "ChargePointStatus": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Available",
+        "Occupied",
+        "Faulted",
+        "Unavailable",
+        "Reserved"
+      ]
+    },
+    "StatusNotificationRequest": {
+      "type": "object",
+      "properties": {
+        "connectorId": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "status": {
+          "$ref": "#/definitions/ChargePointStatus"
+        },
+        "errorCode": {
+          "$ref": "#/definitions/ChargePointErrorCode"
+        },
+        "info": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "vendorId": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "vendorErrorCode": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "connectorId",
+        "status",
+        "errorCode"
+      ]
+    },
+    "StatusNotificationResponse": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "FirmwareStatus": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Downloaded",
+        "DownloadFailed",
+        "InstallationFailed",
+        "Installed"
+      ]
+    },
+    "FirmwareStatusNotificationRequest": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/FirmwareStatus"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ]
+    },
+    "FirmwareStatusNotificationResponse": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "DiagnosticsStatus": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Uploaded",
+        "UploadFailed"
+      ]
+    },
+    "DiagnosticsStatusNotificationRequest": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/DiagnosticsStatus"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ]
+    },
+    "DiagnosticsStatusNotificationResponse": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "DataTransferRequest": {
+      "type": "object",
+      "properties": {
+        "vendorId": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "messageId": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "data": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "vendorId"
+      ]
+    },
+    "DataTransferStatus": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Accepted",
+        "Rejected",
+        "UnknownMessageId",
+        "UnknownVendorId"
+      ]
+    },
+    "DataTransferResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/DataTransferStatus"
+        },
+        "data": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ]
+    },
+    "UnlockStatus": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Accepted",
+        "Rejected"
+      ]
+    },
+    "UnlockConnectorRequest": {
+      "type": "object",
+      "properties": {
+        "connectorId": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "connectorId"
+      ]
+    },
+    "UnlockConnectorResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/UnlockStatus"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ]
+    },
+    "ResetType": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Hard",
+        "Soft"
+      ]
+    },
+    "ResetRequest": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/ResetType"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ]
+    },
+    "ResetStatus": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Accepted",
+        "Rejected"
+      ]
+    },
+    "ResetResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/ResetStatus"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ]
+    },
+    "AvailabilityType": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Inoperative",
+        "Operative"
+      ]
+    },
+    "ChangeAvailabilityRequest": {
+      "type": "object",
+      "properties": {
+        "connectorId": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "type": {
+          "$ref": "#/definitions/AvailabilityType"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "connectorId",
+        "type"
+      ]
+    },
+    "AvailabilityStatus": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Accepted",
+        "Rejected",
+        "Scheduled"
+      ]
+    },
+    "ChangeAvailabilityResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/AvailabilityStatus"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ]
+    },
+    "GetDiagnosticsRequest": {
+      "type": "object",
+      "properties": {
+        "location": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "startTime": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "stopTime": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "retryInterval": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "location"
+      ]
+    },
+    "GetDiagnosticsResponse": {
+      "type": "object",
+      "properties": {
+        "fileName": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "additionalProperties": false
+    },
+    "ClearCacheRequest": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "ClearCacheStatus": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Accepted",
+        "Rejected"
+      ]
+    },
+    "ClearCacheResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/ClearCacheStatus"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ]
+    },
+    "UpdateFirmwareRequest": {
+      "type": "object",
+      "properties": {
+        "retrieveDate": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "location": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "retryInterval": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "retrieveDate",
+        "location"
+      ]
+    },
+    "UpdateFirmwareResponse": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "ChangeConfigurationRequest": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "value": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "value"
+      ]
+    },
+    "ConfigurationStatus": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Accepted",
+        "Rejected",
+        "NotSupported"
+      ]
+    },
+    "ChangeConfigurationResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/ConfigurationStatus"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ]
+    },
+    "RemoteStartTransactionRequest": {
+      "type": "object",
+      "properties": {
+        "idTag": {
+          "$ref": "#/definitions/IdToken"
+        },
+        "connectorId": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "idTag"
+      ]
+    },
+    "RemoteStartStopStatus": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Accepted",
+        "Rejected"
+      ]
+    },
+    "RemoteStartTransactionResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/RemoteStartStopStatus"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ]
+    },
+    "RemoteStopTransactionRequest": {
+      "type": "object",
+      "properties": {
+        "transactionId": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "transactionId"
+      ]
+    },
+    "RemoteStopTransactionResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/RemoteStartStopStatus"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ]
+    },
+    "CancelReservationRequest": {
+      "type": "object",
+      "properties": {
+        "reservationId": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "reservationId"
+      ]
+    },
+    "CancelReservationStatus": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Accepted",
+        "Rejected"
+      ]
+    },
+    "CancelReservationResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/CancelReservationStatus"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ]
+    },
+    "GetConfigurationRequest": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "minItems": 0,
+          "maxItems": 512
+        }
+      },
+      "additionalProperties": false
+    },
+    "KeyValue": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "readonly": {
+          "type": "boolean"
+        },
+        "value": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "readonly"
+      ]
+    },
+    "GetConfigurationResponse": {
+      "type": "object",
+      "properties": {
+        "configurationKey": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/KeyValue"
+          },
+          "minItems": 0,
+          "maxItems": 512
+        },
+        "unknownKey": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "minItems": 0,
+          "maxItems": 512
+        }
+      },
+      "additionalProperties": false
+    },
+    "GetLocalListVersionRequest": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "GetLocalListVersionResponse": {
+      "type": "object",
+      "properties": {
+        "listVersion": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "listVersion"
+      ]
+    },
+    "ReserveNowRequest": {
+      "type": "object",
+      "properties": {
+        "connectorId": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "expiryDate": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "idTag": {
+          "$ref": "#/definitions/IdToken"
+        },
+        "parentIdTag": {
+          "$ref": "#/definitions/IdToken"
+        },
+        "reservationId": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "connectorId",
+        "expiryDate",
+        "idTag",
+        "reservationId"
+      ]
+    },
+    "ReservationStatus": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Accepted",
+        "Faulted",
+        "Occupied",
+        "Rejected",
+        "Unavailable"
+      ]
+    },
+    "ReserveNowResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/ReservationStatus"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ]
+    },
+    "AuthorisationData": {
+      "type": "object",
+      "properties": {
+        "idTag": {
+          "$ref": "#/definitions/IdToken"
+        },
+        "idTagInfo": {
+          "$ref": "#/definitions/IdTagInfo"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "idTag"
+      ]
+    },
+    "UpdateType": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Differential",
+        "Full"
+      ]
+    },
+    "SendLocalListRequest": {
+      "type": "object",
+      "properties": {
+        "updateType": {
+          "$ref": "#/definitions/UpdateType"
+        },
+        "listVersion": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "localAuthorisationList": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AuthorisationData"
+          },
+          "minItems": 0,
+          "maxItems": 512
+        },
+        "hash": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "updateType",
+        "listVersion"
+      ]
+    },
+    "UpdateStatus": {
+      "type": "string",
+      "maxLength": 4096,
+      "enum": [
+        "Accepted",
+        "Failed",
+        "HashError",
+        "NotSupported",
+        "VersionMismatch"
+      ]
+    },
+    "SendLocalListResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/UpdateStatus"
+        },
+        "hash": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ]
+    }
+  },
+  "elements": {
+    "chargeBoxIdentity": "string",
+    "authorizeRequest": "AuthorizeRequest",
+    "authorizeResponse": "AuthorizeResponse",
+    "startTransactionRequest": "StartTransactionRequest",
+    "startTransactionResponse": "StartTransactionResponse",
+    "stopTransactionRequest": "StopTransactionRequest",
+    "stopTransactionResponse": "StopTransactionResponse",
+    "heartbeatRequest": "HeartbeatRequest",
+    "heartbeatResponse": "HeartbeatResponse",
+    "meterValuesRequest": "MeterValuesRequest",
+    "meterValuesResponse": "MeterValuesResponse",
+    "bootNotificationRequest": "BootNotificationRequest",
+    "bootNotificationResponse": "BootNotificationResponse",
+    "statusNotificationRequest": "StatusNotificationRequest",
+    "statusNotificationResponse": "StatusNotificationResponse",
+    "firmwareStatusNotificationRequest": "FirmwareStatusNotificationRequest",
+    "firmwareStatusNotificationResponse": "FirmwareStatusNotificationResponse",
+    "diagnosticsStatusNotificationRequest": "DiagnosticsStatusNotificationRequest",
+    "diagnosticsStatusNotificationResponse": "DiagnosticsStatusNotificationResponse",
+    "dataTransferRequest": "DataTransferRequest",
+    "dataTransferResponse": "DataTransferResponse",
+    "unlockConnectorRequest": "UnlockConnectorRequest",
+    "unlockConnectorResponse": "UnlockConnectorResponse",
+    "resetRequest": "ResetRequest",
+    "resetResponse": "ResetResponse",
+    "changeAvailabilityRequest": "ChangeAvailabilityRequest",
+    "changeAvailabilityResponse": "ChangeAvailabilityResponse",
+    "getDiagnosticsRequest": "GetDiagnosticsRequest",
+    "getDiagnosticsResponse": "GetDiagnosticsResponse",
+    "clearCacheRequest": "ClearCacheRequest",
+    "clearCacheResponse": "ClearCacheResponse",
+    "updateFirmwareRequest": "UpdateFirmwareRequest",
+    "updateFirmwareResponse": "UpdateFirmwareResponse",
+    "changeConfigurationRequest": "ChangeConfigurationRequest",
+    "changeConfigurationResponse": "ChangeConfigurationResponse",
+    "remoteStartTransactionRequest": "RemoteStartTransactionRequest",
+    "remoteStartTransactionResponse": "RemoteStartTransactionResponse",
+    "remoteStopTransactionRequest": "RemoteStopTransactionRequest",
+    "remoteStopTransactionResponse": "RemoteStopTransactionResponse",
+    "cancelReservationRequest": "CancelReservationRequest",
+    "cancelReservationResponse": "CancelReservationResponse",
+    "getConfigurationRequest": "GetConfigurationRequest",
+    "getConfigurationResponse": "GetConfigurationResponse",
+    "getLocalListVersionRequest": "GetLocalListVersionRequest",
+    "getLocalListVersionResponse": "GetLocalListVersionResponse",
+    "reserveNowRequest": "ReserveNowRequest",
+    "reserveNowResponse": "ReserveNowResponse",
+    "sendLocalListRequest": "SendLocalListRequest",
+    "sendLocalListResponse": "SendLocalListResponse"
+  },
+  "namespaces": {
+    "cs": "urn://Ocpp/Cs/2012/06/",
+    "cp": "urn://Ocpp/Cp/2012/06/"
+  },
+  "xmlFields": {
+    "IdTagInfo": [
+      {
+        "name": "status",
+        "schema": {
+          "$ref": "#/definitions/AuthorizationStatus"
+        }
+      },
+      {
+        "name": "expiryDate",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "parentIdTag",
+        "schema": {
+          "$ref": "#/definitions/IdToken"
+        }
+      }
+    ],
+    "AuthorizeRequest": [
+      {
+        "name": "idTag",
+        "schema": {
+          "$ref": "#/definitions/IdToken"
+        }
+      }
+    ],
+    "AuthorizeResponse": [
+      {
+        "name": "idTagInfo",
+        "schema": {
+          "$ref": "#/definitions/IdTagInfo"
+        }
+      }
+    ],
+    "StartTransactionRequest": [
+      {
+        "name": "connectorId",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      {
+        "name": "idTag",
+        "schema": {
+          "$ref": "#/definitions/IdToken"
+        }
+      },
+      {
+        "name": "timestamp",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "meterStart",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      {
+        "name": "reservationId",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      }
+    ],
+    "StartTransactionResponse": [
+      {
+        "name": "transactionId",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      {
+        "name": "idTagInfo",
+        "schema": {
+          "$ref": "#/definitions/IdTagInfo"
+        }
+      }
+    ],
+    "TransactionData": [
+      {
+        "name": "values",
+        "schema": {
+          "$ref": "#/definitions/MeterValue"
+        },
+        "array": true
+      }
+    ],
+    "StopTransactionRequest": [
+      {
+        "name": "transactionId",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      {
+        "name": "idTag",
+        "schema": {
+          "$ref": "#/definitions/IdToken"
+        }
+      },
+      {
+        "name": "timestamp",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "meterStop",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      {
+        "name": "transactionData",
+        "schema": {
+          "$ref": "#/definitions/TransactionData"
+        },
+        "array": true
+      }
+    ],
+    "StopTransactionResponse": [
+      {
+        "name": "idTagInfo",
+        "schema": {
+          "$ref": "#/definitions/IdTagInfo"
+        }
+      }
+    ],
+    "HeartbeatRequest": [],
+    "HeartbeatResponse": [
+      {
+        "name": "currentTime",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    ],
+    "MeterValue": [
+      {
+        "name": "timestamp",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "value",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "context": {
+              "$ref": "#/definitions/ReadingContext"
+            },
+            "format": {
+              "$ref": "#/definitions/ValueFormat"
+            },
+            "measurand": {
+              "$ref": "#/definitions/Measurand"
+            },
+            "location": {
+              "$ref": "#/definitions/Location"
+            },
+            "unit": {
+              "$ref": "#/definitions/UnitOfMeasure"
+            }
+          },
+          "additionalProperties": false,
+          "x-xmlFields": [
+            {
+              "name": "value",
+              "text": true
+            },
+            {
+              "name": "context",
+              "attribute": true
+            },
+            {
+              "name": "format",
+              "attribute": true
+            },
+            {
+              "name": "measurand",
+              "attribute": true
+            },
+            {
+              "name": "location",
+              "attribute": true
+            },
+            {
+              "name": "unit",
+              "attribute": true
+            }
+          ],
+          "required": [
+            "value"
+          ]
+        },
+        "array": true
+      }
+    ],
+    "MeterValuesRequest": [
+      {
+        "name": "connectorId",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      {
+        "name": "transactionId",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      {
+        "name": "values",
+        "schema": {
+          "$ref": "#/definitions/MeterValue"
+        },
+        "array": true
+      }
+    ],
+    "MeterValuesResponse": [],
+    "BootNotificationRequest": [
+      {
+        "name": "chargePointVendor",
+        "schema": {
+          "$ref": "#/definitions/ChargePointVendor"
+        }
+      },
+      {
+        "name": "chargePointModel",
+        "schema": {
+          "$ref": "#/definitions/ChargePointModel"
+        }
+      },
+      {
+        "name": "chargePointSerialNumber",
+        "schema": {
+          "$ref": "#/definitions/ChargePointSerialNumber"
+        }
+      },
+      {
+        "name": "chargeBoxSerialNumber",
+        "schema": {
+          "$ref": "#/definitions/ChargeBoxSerialNumber"
+        }
+      },
+      {
+        "name": "firmwareVersion",
+        "schema": {
+          "$ref": "#/definitions/FirmwareVersion"
+        }
+      },
+      {
+        "name": "iccid",
+        "schema": {
+          "$ref": "#/definitions/IccidString"
+        }
+      },
+      {
+        "name": "imsi",
+        "schema": {
+          "$ref": "#/definitions/ImsiString"
+        }
+      },
+      {
+        "name": "meterType",
+        "schema": {
+          "$ref": "#/definitions/MeterType"
+        }
+      },
+      {
+        "name": "meterSerialNumber",
+        "schema": {
+          "$ref": "#/definitions/MeterSerialNumber"
+        }
+      }
+    ],
+    "BootNotificationResponse": [
+      {
+        "name": "status",
+        "schema": {
+          "$ref": "#/definitions/RegistrationStatus"
+        }
+      },
+      {
+        "name": "currentTime",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "heartbeatInterval",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      }
+    ],
+    "StatusNotificationRequest": [
+      {
+        "name": "connectorId",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      {
+        "name": "status",
+        "schema": {
+          "$ref": "#/definitions/ChargePointStatus"
+        }
+      },
+      {
+        "name": "errorCode",
+        "schema": {
+          "$ref": "#/definitions/ChargePointErrorCode"
+        }
+      },
+      {
+        "name": "info",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      {
+        "name": "timestamp",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "vendorId",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      {
+        "name": "vendorErrorCode",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      }
+    ],
+    "StatusNotificationResponse": [],
+    "FirmwareStatusNotificationRequest": [
+      {
+        "name": "status",
+        "schema": {
+          "$ref": "#/definitions/FirmwareStatus"
+        }
+      }
+    ],
+    "FirmwareStatusNotificationResponse": [],
+    "DiagnosticsStatusNotificationRequest": [
+      {
+        "name": "status",
+        "schema": {
+          "$ref": "#/definitions/DiagnosticsStatus"
+        }
+      }
+    ],
+    "DiagnosticsStatusNotificationResponse": [],
+    "DataTransferRequest": [
+      {
+        "name": "vendorId",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      {
+        "name": "messageId",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      {
+        "name": "data",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      }
+    ],
+    "DataTransferResponse": [
+      {
+        "name": "status",
+        "schema": {
+          "$ref": "#/definitions/DataTransferStatus"
+        }
+      },
+      {
+        "name": "data",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      }
+    ],
+    "UnlockConnectorRequest": [
+      {
+        "name": "connectorId",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      }
+    ],
+    "UnlockConnectorResponse": [
+      {
+        "name": "status",
+        "schema": {
+          "$ref": "#/definitions/UnlockStatus"
+        }
+      }
+    ],
+    "ResetRequest": [
+      {
+        "name": "type",
+        "schema": {
+          "$ref": "#/definitions/ResetType"
+        }
+      }
+    ],
+    "ResetResponse": [
+      {
+        "name": "status",
+        "schema": {
+          "$ref": "#/definitions/ResetStatus"
+        }
+      }
+    ],
+    "ChangeAvailabilityRequest": [
+      {
+        "name": "connectorId",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      {
+        "name": "type",
+        "schema": {
+          "$ref": "#/definitions/AvailabilityType"
+        }
+      }
+    ],
+    "ChangeAvailabilityResponse": [
+      {
+        "name": "status",
+        "schema": {
+          "$ref": "#/definitions/AvailabilityStatus"
+        }
+      }
+    ],
+    "GetDiagnosticsRequest": [
+      {
+        "name": "location",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      {
+        "name": "startTime",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "stopTime",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "retries",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      {
+        "name": "retryInterval",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      }
+    ],
+    "GetDiagnosticsResponse": [
+      {
+        "name": "fileName",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      }
+    ],
+    "ClearCacheRequest": [],
+    "ClearCacheResponse": [
+      {
+        "name": "status",
+        "schema": {
+          "$ref": "#/definitions/ClearCacheStatus"
+        }
+      }
+    ],
+    "UpdateFirmwareRequest": [
+      {
+        "name": "retrieveDate",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "location",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      {
+        "name": "retries",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      {
+        "name": "retryInterval",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      }
+    ],
+    "UpdateFirmwareResponse": [],
+    "ChangeConfigurationRequest": [
+      {
+        "name": "key",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      {
+        "name": "value",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      }
+    ],
+    "ChangeConfigurationResponse": [
+      {
+        "name": "status",
+        "schema": {
+          "$ref": "#/definitions/ConfigurationStatus"
+        }
+      }
+    ],
+    "RemoteStartTransactionRequest": [
+      {
+        "name": "idTag",
+        "schema": {
+          "$ref": "#/definitions/IdToken"
+        }
+      },
+      {
+        "name": "connectorId",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      }
+    ],
+    "RemoteStartTransactionResponse": [
+      {
+        "name": "status",
+        "schema": {
+          "$ref": "#/definitions/RemoteStartStopStatus"
+        }
+      }
+    ],
+    "RemoteStopTransactionRequest": [
+      {
+        "name": "transactionId",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      }
+    ],
+    "RemoteStopTransactionResponse": [
+      {
+        "name": "status",
+        "schema": {
+          "$ref": "#/definitions/RemoteStartStopStatus"
+        }
+      }
+    ],
+    "CancelReservationRequest": [
+      {
+        "name": "reservationId",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      }
+    ],
+    "CancelReservationResponse": [
+      {
+        "name": "status",
+        "schema": {
+          "$ref": "#/definitions/CancelReservationStatus"
+        }
+      }
+    ],
+    "GetConfigurationRequest": [
+      {
+        "name": "key",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "array": true
+      }
+    ],
+    "KeyValue": [
+      {
+        "name": "key",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      {
+        "name": "readonly",
+        "schema": {
+          "type": "boolean"
+        }
+      },
+      {
+        "name": "value",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      }
+    ],
+    "GetConfigurationResponse": [
+      {
+        "name": "configurationKey",
+        "schema": {
+          "$ref": "#/definitions/KeyValue"
+        },
+        "array": true
+      },
+      {
+        "name": "unknownKey",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "array": true
+      }
+    ],
+    "GetLocalListVersionRequest": [],
+    "GetLocalListVersionResponse": [
+      {
+        "name": "listVersion",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      }
+    ],
+    "ReserveNowRequest": [
+      {
+        "name": "connectorId",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      {
+        "name": "expiryDate",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      {
+        "name": "idTag",
+        "schema": {
+          "$ref": "#/definitions/IdToken"
+        }
+      },
+      {
+        "name": "parentIdTag",
+        "schema": {
+          "$ref": "#/definitions/IdToken"
+        }
+      },
+      {
+        "name": "reservationId",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      }
+    ],
+    "ReserveNowResponse": [
+      {
+        "name": "status",
+        "schema": {
+          "$ref": "#/definitions/ReservationStatus"
+        }
+      }
+    ],
+    "AuthorisationData": [
+      {
+        "name": "idTag",
+        "schema": {
+          "$ref": "#/definitions/IdToken"
+        }
+      },
+      {
+        "name": "idTagInfo",
+        "schema": {
+          "$ref": "#/definitions/IdTagInfo"
+        }
+      }
+    ],
+    "SendLocalListRequest": [
+      {
+        "name": "updateType",
+        "schema": {
+          "$ref": "#/definitions/UpdateType"
+        }
+      },
+      {
+        "name": "listVersion",
+        "schema": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      },
+      {
+        "name": "localAuthorisationList",
+        "schema": {
+          "$ref": "#/definitions/AuthorisationData"
+        },
+        "array": true
+      },
+      {
+        "name": "hash",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      }
+    ],
+    "SendLocalListResponse": [
+      {
+        "name": "status",
+        "schema": {
+          "$ref": "#/definitions/UpdateStatus"
+        }
+      },
+      {
+        "name": "hash",
+        "schema": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      }
+    ]
+  }
+}

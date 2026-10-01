@@ -141,7 +141,9 @@ std::string sql_time(std::string_view text) {
     out << std::put_time(&result, "%Y-%m-%d %H:%M:%S") << '.' << fraction;
     return out.str();
 }
-Schemas::Schemas(const std::filesystem::path &directory) {
+Schemas::Schemas(const std::filesystem::path &directory, bool version201,
+                 std::size_t expected_count)
+    : version201_(version201), legacy_(expected_count != 0) {
     for (const auto &file : std::filesystem::directory_iterator(directory)) {
         if (file.path().extension() != ".json")
             continue;
@@ -155,10 +157,13 @@ Schemas::Schemas(const std::filesystem::path &directory) {
         auto validator = std::make_unique<nlohmann::json_schema::json_validator>(
             nullptr, nlohmann::json_schema::default_string_format_check);
         validator->set_root_schema(schema);
-        validators_.emplace(file.path().stem().string(), std::move(validator));
+        auto name = file.path().stem().string();
+        if (version201 && name.ends_with("Request"))
+            name.resize(name.size() - 7);
+        validators_.emplace(std::move(name), std::move(validator));
     }
-    if (validators_.size() != 78)
-        throw std::runtime_error("Expected 78 bundled OCPP 1.6 and security extension schemas");
+    if (validators_.size() != (expected_count ? expected_count : (version201 ? 128 : 78)))
+        throw std::runtime_error("Incomplete bundled protocol schema set");
 }
 bool Schemas::contains(std::string_view action, bool response) const {
     return validators_.contains(std::string(action) + (response ? "Response" : ""));
@@ -172,6 +177,28 @@ void Schemas::validate(std::string_view action, const Json &payload, bool respon
     } catch (const std::exception &) {
         throw ProtocolError("PropertyConstraintViolation", "Payload does not match schema");
     }
+    if (version201_) {
+        std::function<void(const Json &)> bounds = [&](const Json &value) {
+            if (value.is_array() && value.size() > 512)
+                throw ProtocolError("OccurrenceConstraintViolation", "Array item limit");
+            if (value.is_object() || value.is_array()) {
+                for (auto it = value.begin(); it != value.end(); ++it) {
+                    if (value.is_object() && it.value().is_number_integer() &&
+                        (it.key() == "seqNo" || it.key() == "evseId" || it.key() == "connectorId" ||
+                         it.key() == "requestId" || it.key() == "remoteStartId")) {
+                        const auto n = it.value().get<std::int64_t>();
+                        if (n < 0 || n > 2147483647)
+                            throw ProtocolError("PropertyConstraintViolation", "Integer range");
+                    }
+                    if (value.is_object() && it.key() == "timestamp" && it.value().is_string())
+                        static_cast<void>(sql_time(it.value().get<std::string>()));
+                    bounds(it.value());
+                }
+            }
+        };
+        bounds(payload);
+        return;
+    }
     // Additional finite resource and business integer bounds, absent in some OCA schemas.
     for (const auto *name :
          {"connectorId", "transactionId", "meterStart", "meterStop", "reservationId"}) {
@@ -181,6 +208,8 @@ void Schemas::validate(std::string_view action, const Json &payload, bool respon
     }
     if (payload.contains("timestamp"))
         static_cast<void>(sql_time(payload["timestamp"].get<std::string>()));
+    if (legacy_)
+        return; // Canonical conversion is bounded again by the common service validator.
     for (const auto *field : {"meterValue", "transactionData"}) {
         if (!payload.contains(field))
             continue;

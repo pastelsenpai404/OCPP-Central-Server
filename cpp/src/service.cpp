@@ -1,4 +1,7 @@
 #include "ocpp/service.hpp"
+#include "ocpp/billing.hpp"
+#include "ocpp/certificates.hpp"
+#include "ocpp/commands.hpp"
 #include <limits>
 
 namespace ocpp {
@@ -57,30 +60,60 @@ void Service::meters(Database::Lease &db, const std::string &station, const std:
         if (rows.empty() || rows[0]["connector_pk"] != c)
             throw ProtocolError("SecurityError", "Transaction ownership mismatch");
     }
+    const std::string insert = "INSERT INTO "
+                               "connector_meter_value(connector_pk,transaction_pk,value_timestamp,"
+                               "value,reading_context,format,measurand,location,unit,phase) VALUES";
+    std::string batch = insert;
+    Parameters parameters;
+    auto flush = [&] {
+        if (parameters.empty())
+            return;
+        db.execute(batch, parameters);
+        batch = insert;
+        parameters.clear();
+    };
     for (const auto &value : values) {
         const auto timestamp = sql_time(string(value, "timestamp"));
         for (const auto &sample : value.at("sampledValue")) {
-            db.execute(
-                "INSERT INTO "
-                "connector_meter_value(connector_pk,transaction_pk,value_timestamp,value,reading_"
-                "context,format,measurand,location,unit,phase) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                {c, tx, timestamp, string(sample, "value"),
-                 sample.value("context", "Sample.Periodic"), sample.value("format", "Raw"),
-                 sample.value("measurand", "Energy.Active.Import.Register"),
-                 sample.value("location", "Outlet"), sample.value("unit", "Wh"),
-                 optional(sample, "phase")});
+            if (!parameters.empty())
+                batch += ',';
+            batch += "(?,?,?,?,?,?,?,?,?,?)";
+            const Parameters row{c,
+                                 tx,
+                                 timestamp,
+                                 string(sample, "value"),
+                                 sample.value("context", "Sample.Periodic"),
+                                 sample.value("format", "Raw"),
+                                 sample.value("measurand", "Energy.Active.Import.Register"),
+                                 sample.value("location", "Outlet"),
+                                 sample.value("unit", "Wh"),
+                                 optional(sample, "phase")};
+            parameters.insert(parameters.end(), row.begin(), row.end());
+            if (parameters.size() == 640)
+                flush();
         }
     }
+    flush();
 }
 bool Service::station_registered(const std::string &station) {
     auto db = database_.acquire();
     return !db.execute("SELECT charge_box_pk FROM charge_box WHERE charge_box_id=?", {station})
                 .rows.empty();
 }
-Json Service::call(const std::string &station, const Message &request) {
+Json Service::call(const std::string &station, const Message &request,
+                   const std::string &protocol) {
     if (request.type != 2 || !station_id_valid(station))
         throw ProtocolError("SecurityError", "Invalid request context");
-    schemas_.validate(request.action, request.payload);
+    if (!incoming_action(request.action))
+        throw ProtocolError("NotImplemented", "Unsupported incoming action");
+    // Legacy WSDL permits empty/missing meter lists. Its transport validator has
+    // already validated connector/transaction IDs; preserve a valid no-sample notification.
+    const bool legacy_empty_meters = protocol != "ocpp1.6" && request.action == "MeterValues" &&
+                                     request.payload.contains("meterValue") &&
+                                     request.payload.at("meterValue").is_array() &&
+                                     request.payload.at("meterValue").empty();
+    if (!legacy_empty_meters)
+        schemas_.validate(request.action, request.payload);
     auto db = database_.acquire();
     db.begin();
     const auto registered =
@@ -96,11 +129,16 @@ Json Service::call(const std::string &station, const Message &request) {
     // if a charger reuses an ID after reconnecting. Never cache an Accepted tag.
     const bool durable = request.action != "Authorize" && request.action != "Heartbeat" &&
                          request.action != "BootNotification";
+    const bool legacy = protocol != "ocpp1.6";
     if (durable) {
-        const auto previous = db.execute("SELECT request_body,response_body FROM cpp_ocpp_replay "
-                                         "WHERE station_id=? AND message_id=?",
-                                         {station, request.id})
-                                  .rows;
+        const auto previous =
+            db.execute(legacy ? "SELECT request_body,response_body FROM cpp_legacy_replay WHERE "
+                                "station_id=? AND protocol=? AND message_id=?"
+                              : "SELECT request_body,response_body FROM cpp_ocpp_replay WHERE "
+                                "station_id=? AND message_id=?",
+                       legacy ? Parameters{station, protocol, request.id}
+                              : Parameters{station, request.id})
+                .rows;
         if (!previous.empty()) {
             if (previous[0]["request_body"] != body)
                 throw ProtocolError("ProtocolError", "Message ID reused with different content");
@@ -111,10 +149,19 @@ Json Service::call(const std::string &station, const Message &request) {
     }
     auto response = Json::array({3, request.id, dispatch(db, station, request)});
     schemas_.validate(request.action, response[2], true);
+    if (request.action == "BootNotification")
+        db.execute("UPDATE charge_box SET ocpp_protocol=? WHERE charge_box_id=?",
+                   {protocol, station});
     if (durable)
-        db.execute("INSERT INTO cpp_ocpp_replay(station_id,message_id,request_body,response_body) "
-                   "VALUES(?,?,?,?)",
-                   {station, request.id, body, response.dump()});
+        db.execute(
+            legacy
+                ? "INSERT INTO "
+                  "cpp_legacy_replay(station_id,protocol,message_id,request_body,response_body) "
+                  "VALUES(?,?,?,?,?)"
+                : "INSERT INTO cpp_ocpp_replay(station_id,message_id,request_body,response_body) "
+                  "VALUES(?,?,?,?)",
+            legacy ? Parameters{station, protocol, request.id, body, response.dump()}
+                   : Parameters{station, request.id, body, response.dump()});
     db.commit();
     return response;
 }
@@ -208,9 +255,14 @@ Json Service::dispatch(Database::Lease &db, const std::string &station, const Me
         if (tx > 2147483647)
             throw std::runtime_error("OCPP transaction ID exhausted");
         if (p.contains("reservationId"))
-            db.execute("UPDATE reservation SET transaction_pk=?,status='Used' WHERE "
-                       "reservation_pk=? AND connector_pk=? AND id_tag=? AND status='Accepted'",
-                       {std::to_string(tx), std::to_string(integer(p["reservationId"])), c, tag});
+            db.execute("UPDATE reservation r JOIN connector rc ON rc.connector_pk=r.connector_pk "
+                       "SET r.transaction_pk=?,r.status='Used' WHERE "
+                       "r.reservation_pk=? AND rc.charge_box_id=? AND (rc.connector_pk=? OR "
+                       "rc.connector_id=0) "
+                       "AND r.id_tag=? AND r.status IN ('Accepted','Unknown','Pending') AND "
+                       "r.expiry_datetime>=?",
+                       {std::to_string(tx), std::to_string(integer(p["reservationId"])), station, c,
+                        tag, timestamp});
         if (publish) {
             db.execute(
                 "INSERT INTO connector_status(connector_pk,status_timestamp,status,error_code) "
@@ -260,9 +312,44 @@ Json Service::dispatch(Database::Lease &db, const std::string &station, const Me
         }
         if (p.contains("idTag"))
             response["idTagInfo"] = tag_info(db, string(p, "idTag"));
+        db.execute("DELETE FROM cpp_profile_assignment WHERE station_id=? AND transaction_id=? AND "
+                   "purpose='TxProfile'",
+                   {station, tx});
     } else if (action == "MeterValues") {
         const auto c = connector(db, station, integer(p["connectorId"]));
         meters(db, station, c, p.at("meterValue"), optional(p, "transactionId"));
+    } else if (action == "LogStatusNotification" || action == "SignedFirmwareStatusNotification") {
+        db.execute("INSERT INTO cpp_station_state(station_id) VALUES(?) ON DUPLICATE KEY UPDATE "
+                   "station_id=station_id",
+                   {station});
+        if (action == "LogStatusNotification")
+            db.execute(
+                "UPDATE cpp_station_state SET log_status=?,log_request_id=? WHERE station_id=?",
+                {string(p, "status"), optional(p, "requestId"), station});
+        else {
+            db.execute("UPDATE cpp_station_state SET firmware_status=?,firmware_request_id=? WHERE "
+                       "station_id=?",
+                       {string(p, "status"), optional(p, "requestId"), station});
+            db.execute(
+                "UPDATE charge_box SET fw_update_status=?,fw_update_timestamp=UTC_TIMESTAMP(6) "
+                "WHERE charge_box_id=?",
+                {string(p, "status"), station});
+        }
+    } else if (action == "SecurityEventNotification") {
+        db.execute(
+            "INSERT INTO cpp_security_event(station_id,event_type,event_timestamp,technical_info) "
+            "VALUES(?,?,?,?)",
+            {station, string(p, "type"), sql_time(string(p, "timestamp")),
+             optional(p, "techInfo")});
+    } else if (action == "SignCertificate") {
+        const auto csr = string(p, "csr");
+        if (!valid_csr(csr))
+            response = {{"status", "Rejected"}};
+        else {
+            db.execute("INSERT INTO cpp_certificate_request(station_id,request_body) VALUES(?,?)",
+                       {station, Json({{"protocol", "ocpp1.6"}, {"payload", p}}).dump()});
+            response = {{"status", "Accepted"}};
+        }
     } else
         throw ProtocolError("NotImplemented", "Action is not implemented");
     if (publish)
@@ -298,10 +385,62 @@ Json Service::overview(std::string_view resource, unsigned offset) {
     else if (resource == "audit")
         sql = "SELECT id,action,station_id,command_id,created_at FROM cpp_audit ORDER BY id DESC "
               "LIMIT 100 OFFSET ?";
+    else if (resource == "tasks")
+        sql = "SELECT command_id,station_id,action,state,http_status,created_at,completed_at FROM "
+              "cpp_command_task ORDER BY created_at DESC LIMIT 100 OFFSET ?";
+    else if (resource == "securityEvents")
+        sql = "SELECT id,station_id,event_type,event_timestamp,technical_info,received_at FROM "
+              "cpp_security_event ORDER BY id DESC LIMIT 100 OFFSET ?";
+    else if (resource == "certificateRequests")
+        sql = "SELECT id,station_id,state,created_at FROM cpp_certificate_request ORDER BY id DESC "
+              "LIMIT 100 OFFSET ?";
+    else if (resource == "transactions201")
+        sql = "SELECT "
+              "station_id,transaction_id,evse_id,connector_id,charging_state,start_timestamp,end_"
+              "timestamp,last_seq_no FROM cpp201_transaction ORDER BY "
+              "COALESCE(end_timestamp,start_timestamp) DESC LIMIT 100 OFFSET ?";
+    else if (resource == "stations201")
+        sql = "SELECT station_id,charging_station_body,boot_reason,updated_at FROM cpp201_station "
+              "ORDER BY station_id LIMIT 100 OFFSET ?";
+    else if (resource == "reports201")
+        sql = "SELECT id,station_id,action,request_id,seq_no,final_chunk,report_body FROM "
+              "cpp201_report ORDER BY id DESC LIMIT 100 OFFSET ?";
+    else if (resource == "deviceModel201")
+        sql = "SELECT * FROM cpp201_device_variable ORDER BY "
+              "station_id,component_name,variable_name LIMIT 100 OFFSET ?";
+    else if (resource == "evseStatus201")
+        sql = "SELECT * FROM cpp201_evse_status ORDER BY station_id,evse_id,connector_id LIMIT 100 "
+              "OFFSET ?";
+    else if (resource == "reservations201")
+        sql = "SELECT * FROM cpp201_reservation ORDER BY expiry_timestamp DESC LIMIT 100 OFFSET ?";
+    else if (resource == "billingSandbox")
+        sql = "SELECT case_id,request_body,response_body,created_at FROM cpp_billing_sandbox ORDER "
+              "BY created_at DESC LIMIT 100 OFFSET ?";
+    else if (resource == "profiles201")
+        sql = "SELECT * FROM cpp201_profile ORDER BY station_id,evse_id,profile_id LIMIT 100 "
+              "OFFSET ?";
     else
         throw ProtocolError("NotSupported", "Unknown resource");
     auto db = database_.acquire();
     return db.execute(sql, {std::to_string(offset)}).rows;
+}
+Json Service::settle_sandbox(const Json &request) {
+    const auto result = sandbox_settlement(request);
+    const auto id = request.at("caseId").get<std::string>();
+    auto db = database_.acquire();
+    db.begin();
+    db.execute(
+        "INSERT IGNORE INTO cpp_billing_sandbox(case_id,request_body,response_body) VALUES(?,?,?)",
+        {id, request.dump(), result.dump()});
+    const auto rows = db.execute("SELECT request_body,response_body FROM cpp_billing_sandbox WHERE "
+                                 "case_id=? FOR UPDATE",
+                                 {id})
+                          .rows;
+    if (rows.size() != 1 || rows[0]["request_body"] != request.dump())
+        throw ProtocolError("ProtocolError", "Sandbox case ID reused with different input");
+    const auto stored = Json::parse(rows[0]["response_body"].get<std::string>());
+    db.commit();
+    return stored;
 }
 void Service::provision_station(const std::string &id) {
     if (!station_id_valid(id))

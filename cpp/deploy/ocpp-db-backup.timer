@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily local backup of C++ OCPP database
+
+[Timer]
+OnCalendar=*-*-* 20:00:00 UTC
+Persistent=true
+RandomizedDelaySec=10m
+Unit=ocpp-db-backup.service
+
+[Install]
+WantedBy=timers.target

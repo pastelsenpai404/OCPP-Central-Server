@@ -1,6 +1,9 @@
 .deps/
 build*/
 config.local.json
+db-ca.local.pem
 *.log
 load-results.json
 __pycache__/
+.venv/
+.deps-linux-test.*/

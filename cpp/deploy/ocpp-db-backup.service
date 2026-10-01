@@ -1,0 +1,17 @@
+[Unit]
+Description=Consistent local backup of C++ OCPP database
+Requires=ocpp-db.service
+After=ocpp-db.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/backup-ocpp-db
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/backups/ocpp-db
+

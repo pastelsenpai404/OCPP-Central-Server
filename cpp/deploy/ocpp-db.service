@@ -1,0 +1,30 @@
+[Unit]
+Description=Isolated MariaDB for C++ OCPP
+After=network.target
+
+[Service]
+Type=simple
+User=ocppdb
+Group=ocppdb
+RuntimeDirectory=ocpp-db
+RuntimeDirectoryMode=0750
+ExecStart=/opt/ocpp-db/runtime/usr/sbin/mariadbd --defaults-file=/etc/ocpp-db.cnf
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=120
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ocpp-db /run/ocpp-db
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=256M
+TasksMax=64
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target

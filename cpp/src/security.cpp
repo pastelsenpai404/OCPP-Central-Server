@@ -1,4 +1,6 @@
 #include "ocpp/security.hpp"
+#include "ocpp/commands.hpp"
+#include "ocpp/http_client.hpp"
 #include <cstdlib>
 #include <set>
 
@@ -58,6 +60,18 @@ Config Config::environment() {
         config.db_host = host;
     config.db_port = static_cast<unsigned short>(bounded_env("OCPP_DB_PORT", 3306, 65535));
     config.db_ca = env("OCPP_DB_CA", false);
+    const auto origins = env("OCPP_TRANSFER_ORIGINS", false);
+    if (!origins.empty()) {
+        if (origins.size() > 8192) throw std::runtime_error("Transfer origin configuration too large");
+        const auto entries = Json::parse(origins);
+        if (!entries.is_array() || entries.size() > 32) throw std::runtime_error("Invalid transfer origins");
+        for (const auto &entry : entries) {
+            if (!entry.is_string()) throw std::runtime_error("Invalid transfer origin");
+            const auto origin = entry.get<std::string>();
+            if (transfer_origin(origin) != origin) throw std::runtime_error("Configure an exact HTTPS origin without a path");
+            config.transfer_origins.insert(origin);
+        }
+    }
     if (config.db_host != "127.0.0.1" && config.db_host != "localhost" && config.db_ca.empty())
         throw std::runtime_error("Remote database requires OCPP_DB_CA");
     config.read_token = env("OCPP_READ_TOKEN");
@@ -83,6 +97,29 @@ Config Config::environment() {
             !unique.insert(it.value().get<std::string>()).second)
             throw std::runtime_error(
                 "Each station needs an ID and a distinct random 32-byte hex secret");
+    const auto soap_origins=env("OCPP_SOAP_ORIGINS",false);
+    if(!soap_origins.empty()) {
+        if(soap_origins.size()>8192) throw std::runtime_error("SOAP origin configuration too large");
+        const auto entries=Json::parse(soap_origins);
+        if(!entries.is_array() || entries.size()>32) throw std::runtime_error("Invalid SOAP origins");
+        for(const auto &entry:entries) {
+            const auto origin=entry.get<std::string>();
+            if(soap_origin(origin)!=origin) throw std::runtime_error("SOAP origin must be exact");
+            config.soap_origins.insert(origin);
+        }
+    }
+    const auto endpoints=env("OCPP_SOAP_ENDPOINTS",false);
+    if(!endpoints.empty()) {
+        if(endpoints.size()>1024*1024) throw std::runtime_error("SOAP endpoint configuration too large");
+        config.soap_endpoints=Json::parse(endpoints);
+        if(!config.soap_endpoints.is_object() || config.soap_endpoints.size()>10000) throw std::runtime_error("Invalid SOAP endpoints");
+        for(const auto &[station,endpoint]:config.soap_endpoints.items()) {
+            if(!config.station_secrets.contains(station) || !endpoint.is_object() || endpoint.size()!=2 || !endpoint.contains("version") || !endpoint.contains("url")) throw std::runtime_error("Invalid SOAP endpoint");
+            const auto version=endpoint.at("version").get<std::string>();
+            if(version!="1.2" && version!="1.5" && version!="1.6") throw std::runtime_error("Invalid SOAP version");
+            if(!config.soap_origins.contains(soap_origin(endpoint.at("url").get<std::string>()))) throw std::runtime_error("SOAP endpoint origin is not configured");
+        }
+    }
     return config;
 }
 int Config::role(std::string_view authorization) const {

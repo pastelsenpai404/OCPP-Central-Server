@@ -2,7 +2,7 @@
 # The C++ listener is intentionally restricted to loopback; Caddy terminates TLS.
 # This sample exposes only charger endpoints. Put administration behind a private gateway.
 {$OCPP_PUBLIC_HOST} {
-    @chargers path /ocpp/* /steve/websocket/CentralSystemService/* /develop/websocket/CentralSystemService/*
+    @chargers path /ocpp/* /steve/websocket/CentralSystemService/* /develop/websocket/CentralSystemService/* /services/CentralSystemService* /steve/services/CentralSystemService* /develop/services/CentralSystemService*
     reverse_proxy @chargers 127.0.0.1:5003 {
         stream_timeout 24h
     }

@@ -1,4 +1,7 @@
+#include "ocpp/commands.hpp"
 #include "ocpp/executor.hpp"
+#include "ocpp/http_client.hpp"
+#include "ocpp/legacy.hpp"
 #include "ocpp/service.hpp"
 #include <atomic>
 #include <charconv>
@@ -23,11 +26,14 @@ drogon::HttpResponsePtr http(int status, const ocpp::Json &body) {
 }
 struct Pending {
     std::string action;
+    ocpp::Json request;
     std::chrono::steady_clock::time_point deadline;
     Completion complete;
 };
+struct CommandQueueExpired {};
 struct Session {
     std::string station;
+    std::string protocol;
     std::weak_ptr<drogon::WebSocketConnection> connection;
     std::mutex mutex;
     RateLimit rate{40, 20};
@@ -38,6 +44,9 @@ struct Session {
 struct Runtime {
     Config config;
     Schemas schemas;
+    Schemas schemas201;
+    std::map<std::string, std::unique_ptr<Schemas>> legacy_schemas;
+    std::map<std::string, std::unique_ptr<SoapCodec>> soap_codecs;
     Database database;
     Service service;
     std::mutex mutex;
@@ -45,10 +54,19 @@ struct Runtime {
     RateLimit api_rate{50, 20};
     std::atomic<std::uint64_t> frames{0}, errors{0}, overloads{0};
     // Destroy executor first, so queued jobs drain while other members still exist.
+    Executor outbound_executor{2, 64};
     Executor executor;
     Runtime(Config c, const std::filesystem::path &path)
-        : config(std::move(c)), schemas(path), database(config), service(database, schemas),
-          executor(config.workers, 256) {}
+        : config(std::move(c)), schemas(path), schemas201(path / "2.0.1", true), database(config),
+          service(database, schemas, &schemas201), executor(config.workers, 256) {
+        for (const auto &[version, count] :
+             std::map<std::string, std::size_t>{{"1.2", 36}, {"1.5", 48}, {"1.6", 56}}) {
+            legacy_schemas.emplace(version,
+                                   std::make_unique<Schemas>(path / version, false, count));
+            soap_codecs.emplace(version,
+                                std::make_unique<SoapCodec>(path / version / "soap.registry"));
+        }
+    }
     std::shared_ptr<Session> find(const std::string &id) {
         std::lock_guard lock(mutex);
         const auto it = sessions.find(id);
@@ -63,63 +81,161 @@ std::unique_ptr<Runtime> runtime;
 void failure(const HttpCallback &cb, int code, const char *message) {
     cb(http(code, {{"error", message}}));
 }
+void soap_failure(const HttpCallback &cb, int code, const char *message,
+                  std::string_view relates_to = {}) {
+    auto response = drogon::HttpResponse::newHttpResponse();
+    response->setStatusCode(static_cast<drogon::HttpStatusCode>(code));
+    response->addHeader("Content-Type", "application/soap+xml; charset=utf-8");
+    response->addHeader("Cache-Control", "no-store");
+    response->addHeader("X-Content-Type-Options", "nosniff");
+    response->setBody(soap_fault(code < 500 && code != 429, message, relates_to));
+    cb(response);
+}
 std::string station_from_path(const std::string &path) {
     return path.substr(path.find_last_of('/') + 1);
 }
-const std::set<std::string> outbound{"CancelReservation",
-                                     "ChangeAvailability",
-                                     "ChangeConfiguration",
-                                     "ClearCache",
-                                     "ClearChargingProfile",
-                                     "DataTransfer",
-                                     "GetCompositeSchedule",
-                                     "GetConfiguration",
-                                     "GetDiagnostics",
-                                     "GetLocalListVersion",
-                                     "RemoteStartTransaction",
-                                     "RemoteStopTransaction",
-                                     "ReserveNow",
-                                     "Reset",
-                                     "SendLocalList",
-                                     "SetChargingProfile",
-                                     "TriggerMessage",
-                                     "UnlockConnector",
-                                     "UpdateFirmware"};
-void check_command(const std::string &action, const ocpp::Json &payload) {
-    if (!outbound.contains(action))
-        throw ProtocolError("NotSupported", "Unknown outbound action");
-    runtime->schemas.validate(action, payload);
-    if (action == "GetDiagnostics" || action == "UpdateFirmware")
-        throw ProtocolError("NotSupported", "Download/upload URL commands require an approved "
-                                            "destination policy; disabled in this build");
+void check_command(const std::string &station, const std::string &action,
+                   const ocpp::Json &payload) {
+    const auto session = runtime->find(station);
+    if (session && session->protocol == "ocpp2.0.1")
+        validate201_command(runtime->schemas201, runtime->config, action, payload);
+    else {
+        if (session && session->protocol != "ocpp1.6") {
+            const auto version = session->protocol.substr(4);
+            runtime->legacy_schemas.at(version)->validate(action,
+                                                          legacy_command(version, action, payload));
+        }
+        if (!session && runtime->config.soap_endpoints.contains(station)) {
+            const auto version =
+                runtime->config.soap_endpoints.at(station).at("version").get<std::string>();
+            runtime->legacy_schemas.at(version)->validate(action,
+                                                          legacy_command(version, action, payload));
+        }
+        validate_command(runtime->schemas, runtime->config, action, payload);
+    }
 }
 void command(const std::string &station, const std::string &action, ocpp::Json payload,
-             Completion complete) {
+             const std::string &id, Completion complete) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
     auto session = runtime->find(station);
     if (!session) {
+        if (runtime->config.soap_endpoints.contains(station)) {
+            const auto completion = std::make_shared<Completion>(std::move(complete));
+            if (!runtime->outbound_executor.submit(station, [station, action,
+                                                             payload = std::move(payload), id,
+                                                             completion, deadline] {
+                    if (std::chrono::steady_clock::now() >= deadline) {
+                        (*completion)(503, {{"error", "command_queue_expired"}});
+                        return;
+                    }
+                    bool prepared = false;
+                    int status = 503;
+                    ocpp::Json result = {{"error", "soap_command_unavailable"}};
+                    try {
+                        const auto &endpoint = runtime->config.soap_endpoints.at(station);
+                        const auto version = endpoint.at("version").get<std::string>();
+                        runtime->service.prepare_command(station, action, id, payload,
+                                                         "soap" + version);
+                        prepared = true;
+                        if (std::chrono::steady_clock::now() >= deadline)
+                            throw CommandQueueExpired{};
+                        const auto message_id = "urn:uuid:" + id;
+                        const auto wire = runtime->soap_codecs.at(version)->encode(
+                            action, legacy_command(version, action, payload), message_id, false,
+                            station);
+                        const auto authorization =
+                            "Basic " +
+                            drogon::utils::base64Encode(
+                                station + ":" +
+                                runtime->config.station_secrets.at(station).get<std::string>());
+                        const auto reply =
+                            post_http(endpoint.at("url").get<std::string>(),
+                                      "application/soap+xml; charset=utf-8", authorization, wire);
+                        if (reply.status != 200)
+                            throw ProtocolError("ProtocolError",
+                                                "SOAP device returned an HTTP error");
+                        auto response = runtime->soap_codecs.at(version)->decode(reply.body, true);
+                        if (response.action != action ||
+                            (!response.message_id.empty() && response.message_id != message_id) ||
+                            (!response.station.empty() && response.station != station))
+                            throw ProtocolError("ProtocolError", "Uncorrelated SOAP response");
+                        runtime->legacy_schemas.at(version)->validate(action, response.payload,
+                                                                      true);
+                        result = canonical_response(version, action, std::move(response.payload));
+                        runtime->schemas.validate(action, result, true);
+                        status = 200;
+                    } catch (const CommandQueueExpired &) {
+                        status = 503;
+                        result = {{"error", "command_queue_expired"}};
+                    } catch (const ProtocolError &) {
+                        status = prepared ? 502 : 400;
+                        result = {{"error", prepared ? "invalid_soap_response"
+                                                     : "command_precondition_failed"}};
+                    } catch (const std::exception &) {
+                        status = prepared ? 504 : 503;
+                        result = {{"error",
+                                   prepared ? "soap_result_unknown" : "soap_command_unavailable"}};
+                    }
+                    if (prepared) {
+                        try {
+                            runtime->service.finish_command(id, status, result);
+                        } catch (const std::exception &) {
+                            status = 503;
+                            result = {{"error", "command_result_not_persisted"}};
+                        }
+                    }
+                    (*completion)(status, result);
+                }))
+                (*completion)(503, {{"error", "server_busy"}});
+            return;
+        }
         complete(409, {{"error", "station_offline"}});
         return;
     }
-    const auto id = drogon::utils::getUuid();
     const auto completion = std::make_shared<Completion>(std::move(complete));
     if (!runtime->executor.submit(station, [session, station, action, payload = std::move(payload),
-                                            id, completion]() mutable {
+                                            id, completion, deadline]() mutable {
+            if (std::chrono::steady_clock::now() >= deadline) {
+                (*completion)(503, {{"error", "command_queue_expired"}});
+                return;
+            }
             try {
-                runtime->service.audit(action, station, id);
+                runtime->service.prepare_command(station, action, id, payload, session->protocol);
+                const Completion persisted = [station, id, completion](int status,
+                                                                       ocpp::Json result) {
+                    auto body = std::make_shared<ocpp::Json>(std::move(result));
+                    if (!runtime->executor.submit(station, [id, status, body, completion] {
+                            try {
+                                runtime->service.finish_command(id, status, *body);
+                                (*completion)(status, *body);
+                            } catch (const std::exception &) {
+                                (*completion)(503, {{"error", "command_result_not_persisted"}});
+                            }
+                        }))
+                        (*completion)(503, {{"error", "server_busy"}});
+                };
+                if (std::chrono::steady_clock::now() >= deadline) {
+                    persisted(503, {{"error", "command_queue_expired"}});
+                    return;
+                }
                 std::lock_guard lock(session->mutex);
                 auto connection = session->connection.lock();
                 if (session->closed || !connection || !connection->connected()) {
-                    (*completion)(409, {{"error", "station_offline"}});
+                    persisted(409, {{"error", "station_offline"}});
                     return;
                 }
                 if (session->pending.size() >= 16) {
-                    (*completion)(429, {{"error", "command_capacity"}});
+                    persisted(429, {{"error", "command_capacity"}});
                     return;
                 }
-                session->pending.emplace(
-                    id, Pending{action, std::chrono::steady_clock::now() + std::chrono::seconds(30),
-                                *completion});
-                connection->send(ocpp::Json::array({2, id, action, payload}).dump());
+                session->pending.emplace(id, Pending{action, payload, deadline, persisted});
+                const auto wire_payload =
+                    session->protocol == "ocpp1.2" || session->protocol == "ocpp1.5"
+                        ? legacy_command(session->protocol.substr(4), action, payload)
+                        : payload;
+                connection->send(ocpp::Json::array({2, id, action, wire_payload}).dump());
+            } catch (const ProtocolError &) {
+                (*completion)(400, {{"error", "command_precondition_failed"}});
             } catch (const std::exception &) {
                 (*completion)(503, {{"error", "command_unavailable"}});
             }
@@ -141,8 +257,10 @@ class StationAuth : public drogon::HttpFilter<StationAuth> {
             reject(http(401, {{"error", "unauthorized"}}));
             return;
         }
-        // Require an exact, unambiguous protocol. Other legacy versions are not advertised.
-        if (request->getHeader("sec-websocket-protocol") != "ocpp1.6") {
+        // Require an exact, unambiguous protocol.
+        const auto protocol = request->getHeader("sec-websocket-protocol");
+        if (protocol != "ocpp1.2" && protocol != "ocpp1.5" && protocol != "ocpp1.6" &&
+            protocol != "ocpp2.0.1") {
             reject(http(400, {{"error", "unsupported_subprotocol"}}));
             return;
         }
@@ -185,6 +303,7 @@ class OcppSocket : public drogon::WebSocketController<OcppSocket> {
                              const drogon::WebSocketConnectionPtr &connection) override {
         auto session = std::make_shared<Session>();
         session->station = station_from_path(request->path());
+        session->protocol = request->getHeader("sec-websocket-protocol");
         session->connection = connection;
         connection->setContext(session);
         connection->setPingMessage("", std::chrono::seconds(30));
@@ -259,7 +378,25 @@ class OcppSocket : public drogon::WebSocketController<OcppSocket> {
                 try {
                     message = parse(wire);
                     if (message->type == 2) {
-                        auto result = runtime->service.call(session->station, *message);
+                        const bool legacy =
+                            session->protocol == "ocpp1.2" || session->protocol == "ocpp1.5";
+                        if (legacy) {
+                            runtime->legacy_schemas.at(session->protocol.substr(4))
+                                ->validate(message->action, message->payload);
+                            message->payload =
+                                legacy_request(session->protocol.substr(4), message->action,
+                                               std::move(message->payload));
+                        }
+                        auto result = session->protocol == "ocpp2.0.1"
+                                          ? runtime->service.call201(session->station, *message)
+                                          : runtime->service.call(session->station, *message,
+                                                                  session->protocol);
+                        if (legacy) {
+                            result[2] = legacy_response(session->protocol.substr(4),
+                                                        message->action, std::move(result[2]));
+                            runtime->legacy_schemas.at(session->protocol.substr(4))
+                                ->validate(message->action, result[2], true);
+                        }
                         socket->send(result.dump());
                     } else {
                         std::optional<Pending> p;
@@ -278,7 +415,19 @@ class OcppSocket : public drogon::WebSocketController<OcppSocket> {
                                               {"code", message->error_code}});
                         else {
                             try {
-                                runtime->schemas.validate(p->action, message->payload, true);
+                                if (session->protocol == "ocpp1.2" ||
+                                    session->protocol == "ocpp1.5") {
+                                    runtime->legacy_schemas.at(session->protocol.substr(4))
+                                        ->validate(p->action, message->payload, true);
+                                    message->payload =
+                                        canonical_response(session->protocol.substr(4), p->action,
+                                                           std::move(message->payload));
+                                }
+                                if (session->protocol == "ocpp2.0.1")
+                                    validate201_response(runtime->schemas201, p->action, p->request,
+                                                         message->payload);
+                                else
+                                    runtime->schemas.validate(p->action, message->payload, true);
                                 p->complete(200, message->payload);
                             } catch (const std::exception &) {
                                 p->complete(502, {{"error", "invalid_station_response"}});
@@ -335,6 +484,109 @@ ocpp::Json request_json(const drogon::HttpRequestPtr &req) {
 }
 void register_routes() {
     auto &app = drogon::app();
+    for (const auto &[version, suffix] : std::map<std::string, std::string>{
+             {"1.2", "12"}, {"1.5", "15"}, {"1.6", "16"}, {"auto", ""}}) {
+        for (const auto &prefix :
+             {std::string(), std::string("/services"), std::string("/steve/services"),
+              std::string("/develop/services")})
+            app.registerHandler(
+                prefix + (version == "auto" ? "/CentralSystemService"
+                                            : "/CentralSystemServiceOCPP" + suffix),
+                [configured_version = version](const drogon::HttpRequestPtr &req,
+                                               HttpCallback &&cb) {
+                    std::string relates_to;
+                    try {
+                        if (!req->getHeader("origin").empty()) {
+                            soap_failure(cb, 403, "browser_origin_not_allowed");
+                            return;
+                        }
+                        if (!runtime->admit_api()) {
+                            soap_failure(cb, 429, "request_rate_limit");
+                            return;
+                        }
+                        if (!req->getHeader("content-type").starts_with("application/soap+xml")) {
+                            soap_failure(cb, 415, "soap_12_required");
+                            return;
+                        }
+                        auto version = configured_version;
+                        std::optional<SoapCall> decoded;
+                        if (version == "auto") {
+                            for (const auto &candidate : {"1.2", "1.5", "1.6"}) {
+                                try {
+                                    decoded =
+                                        runtime->soap_codecs.at(candidate)->decode(req->body());
+                                    version = candidate;
+                                    break;
+                                } catch (const ProtocolError &) {
+                                }
+                            }
+                            if (!decoded)
+                                throw ProtocolError("FormationViolation", "Unknown SOAP namespace");
+                        } else
+                            decoded = runtime->soap_codecs.at(version)->decode(req->body());
+                        auto call = std::move(*decoded);
+                        relates_to = call.message_id;
+                        if (!runtime->config.station_secrets.contains(call.station)) {
+                            soap_failure(cb, 401, "unauthorized", relates_to);
+                            return;
+                        }
+                        const auto expected =
+                            "Basic " + drogon::utils::base64Encode(
+                                           call.station + ":" +
+                                           runtime->config.station_secrets.at(call.station)
+                                               .get<std::string>());
+                        if (!constant_equal(req->getHeader("authorization"), expected)) {
+                            soap_failure(cb, 401, "unauthorized", relates_to);
+                            return;
+                        }
+                        runtime->legacy_schemas.at(version)->validate(call.action, call.payload);
+                        auto callback = std::make_shared<HttpCallback>(std::move(cb));
+                        const auto station = call.station;
+                        if (!runtime->executor.submit(station, [version, call = std::move(call),
+                                                                callback]() mutable {
+                                try {
+                                    const auto message_id = call.message_id.empty()
+                                                                ? drogon::utils::getUuid()
+                                                                : call.message_id;
+                                    Message message{2,
+                                                    message_id,
+                                                    call.action,
+                                                    legacy_request(version, call.action,
+                                                                   std::move(call.payload)),
+                                                    {}};
+                                    auto result = runtime->service.call(call.station, message,
+                                                                        "soap" + version);
+                                    result[2] =
+                                        legacy_response(version, call.action, std::move(result[2]));
+                                    runtime->legacy_schemas.at(version)->validate(call.action,
+                                                                                  result[2], true);
+                                    const auto wire = runtime->soap_codecs.at(version)->encode(
+                                        call.action, result[2], call.message_id);
+                                    auto response = drogon::HttpResponse::newHttpResponse();
+                                    response->setStatusCode(drogon::k200OK);
+                                    response->addHeader("Content-Type",
+                                                        "application/soap+xml; charset=utf-8");
+                                    response->addHeader("Cache-Control", "no-store");
+                                    response->addHeader("X-Content-Type-Options", "nosniff");
+                                    response->setBody(wire);
+                                    (*callback)(response);
+                                } catch (const ProtocolError &) {
+                                    soap_failure(*callback, 400, "invalid_ocpp_request",
+                                                 call.message_id);
+                                } catch (const std::exception &) {
+                                    soap_failure(*callback, 503, "service_unavailable",
+                                                 call.message_id);
+                                }
+                            }))
+                            soap_failure(*callback, 503, "server_busy");
+                    } catch (const ProtocolError &) {
+                        soap_failure(cb, 400, "invalid_soap_request", relates_to);
+                    } catch (const std::exception &) {
+                        soap_failure(cb, 503, "service_unavailable", relates_to);
+                    }
+                },
+                {drogon::Post});
+    }
     app.registerHandler("/health/live",
                         [](const drogon::HttpRequestPtr &, HttpCallback &&cb) {
                             cb(http(200, {{"status", "live"}}));
@@ -345,9 +597,7 @@ void register_routes() {
                             const auto callback = std::make_shared<HttpCallback>(std::move(cb));
                             if (!runtime->executor.submit("health", [callback] {
                                     try {
-                                        auto db = runtime->database.acquire();
-                                        db.execute(
-                                            "SELECT station_id FROM cpp_ocpp_replay LIMIT 1");
+                                        runtime->service.verify_schema();
                                         (*callback)(http(200, {{"status", "ready"}}));
                                     } catch (const std::exception &e) {
                                         LOG_ERROR << "Readiness failed: " << e.what();
@@ -375,7 +625,12 @@ void register_routes() {
     app.registerHandler(
         "/api/v1/{1}",
         [](const drogon::HttpRequestPtr &req, HttpCallback &&cb, std::string resource) {
-            if (!authorize(req, cb, resource == "audit" ? 3 : 1))
+            if (!authorize(req, cb,
+                           (resource == "audit" || resource == "securityEvents" ||
+                            resource == "certificateRequests" || resource == "reports201" ||
+                            resource == "deviceModel201" || resource == "billingSandbox")
+                               ? 3
+                               : (resource == "tasks" ? 2 : 1)))
                 return;
             unsigned offset = 0;
             const auto input = req->getParameter("offset");
@@ -399,24 +654,54 @@ void register_routes() {
                 failure(*callback, 503, "server_busy");
         },
         {drogon::Get});
+    app.registerHandler(
+        "/api/v1/billing/sandbox/settle",
+        [](const drogon::HttpRequestPtr &req, HttpCallback &&cb) {
+            if (!authorize(req, cb, 3))
+                return;
+            try {
+                auto request = request_json(req);
+                auto callback = std::make_shared<HttpCallback>(std::move(cb));
+                if (!runtime->executor.submit(
+                        "billing-sandbox", [request = std::move(request), callback] {
+                            try {
+                                (*callback)(http(200, runtime->service.settle_sandbox(request)));
+                            } catch (const ProtocolError &) {
+                                failure(*callback, 400, "invalid_or_conflicting_sandbox_case");
+                            } catch (const std::exception &) {
+                                failure(*callback, 503, "sandbox_unavailable");
+                            }
+                        }))
+                    failure(*callback, 503, "server_busy");
+            } catch (const ProtocolError &) {
+                failure(cb, 400, "invalid_sandbox_case");
+            }
+        },
+        {drogon::Post});
     app.registerHandler("/api/v1/chargepoints/{1}/commands/{2}",
                         [](const drogon::HttpRequestPtr &req, HttpCallback &&cb,
                            std::string station, std::string action) {
-                            if (!authorize(req, cb, 2))
+                            const bool certificate_command =
+                                action == "CertificateSigned" || action == "InstallCertificate" ||
+                                action == "DeleteCertificate" || action == "SetNetworkProfile";
+                            if (!authorize(req, cb, certificate_command ? 3 : 2))
                                 return;
                             try {
                                 if (!station_id_valid(station))
                                     throw ProtocolError("PropertyConstraintViolation",
                                                         "Invalid station");
                                 auto payload = request_json(req);
-                                check_command(action, payload);
+                                check_command(station, action, payload);
                                 auto callback = std::make_shared<HttpCallback>(std::move(cb));
-                                command(station, action, std::move(payload),
-                                        [callback](int status, ocpp::Json result) {
-                                            (*callback)(http(status, result));
+                                const auto id = drogon::utils::getUuid();
+                                command(station, action, std::move(payload), id,
+                                        [callback, id](int status, ocpp::Json result) {
+                                            auto response = http(status, result);
+                                            response->addHeader("X-OCPP-Command-ID", id);
+                                            (*callback)(response);
                                         });
                             } catch (const ProtocolError &) {
-                                failure(cb, 400, "invalid_or_disabled_command");
+                                failure(cb, 400, "invalid_command_or_transfer_origin");
                             } catch (const std::exception &) {
                                 failure(cb, 400, "invalid_json");
                             }
@@ -473,12 +758,100 @@ void register_routes() {
             }
         },
         {drogon::Post});
-    app.registerPreSendingAdvice(
-        [](const drogon::HttpRequestPtr &, const drogon::HttpResponsePtr &response) {
-            if (response->statusCode() == drogon::k101SwitchingProtocols)
-                response->addHeader("Sec-WebSocket-Protocol", "ocpp1.6");
-            response->addHeader("X-Content-Type-Options", "nosniff");
-        });
+    // Exact POST paths shadow the generic GET route in Drogon. Register both
+    // methods on those paths so station/tag reads remain reachable.
+    for (const auto &resource : {std::string("chargepoints"), std::string("ocppTags")}) {
+        app.registerHandler(
+            "/api/v1/" + resource,
+            [resource](const drogon::HttpRequestPtr &req, HttpCallback &&cb) {
+                if (!authorize(req, cb, 1))
+                    return;
+                unsigned offset = 0;
+                const auto input = req->getParameter("offset");
+                if (!input.empty()) {
+                    const auto [end, ec] =
+                        std::from_chars(input.data(), input.data() + input.size(), offset);
+                    if (ec != std::errc{} || end != input.data() + input.size()) {
+                        failure(cb, 400, "invalid_offset");
+                        return;
+                    }
+                }
+                auto callback = std::make_shared<HttpCallback>(std::move(cb));
+                if (!runtime->executor.submit("api-read", [resource, offset, callback] {
+                        try {
+                            (*callback)(http(200, runtime->service.overview(resource, offset)));
+                        } catch (const ProtocolError &) {
+                            failure(*callback, 400, "invalid_resource_or_offset");
+                        } catch (const std::exception &) {
+                            failure(*callback, 503, "database_unavailable");
+                        }
+                    }))
+                    failure(*callback, 503, "server_busy");
+            },
+            {drogon::Get});
+    }
+    app.registerHandler("/api/v1/tasks/{1}",
+                        [](const drogon::HttpRequestPtr &req, HttpCallback &&cb, std::string id) {
+                            if (!authorize(req, cb, 2))
+                                return;
+                            auto callback = std::make_shared<HttpCallback>(std::move(cb));
+                            if (!runtime->executor.submit("api-read", [id, callback] {
+                                    try {
+                                        (*callback)(http(200, runtime->service.task(id)));
+                                    } catch (const ProtocolError &) {
+                                        failure(*callback, 404, "task_not_found");
+                                    } catch (const std::exception &) {
+                                        failure(*callback, 503, "database_unavailable");
+                                    }
+                                }))
+                                failure(*callback, 503, "server_busy");
+                        },
+                        {drogon::Get});
+    app.registerHandler("/api/v1/idTokens",
+                        [](const drogon::HttpRequestPtr &req, HttpCallback &&cb) {
+                            if (!authorize(req, cb, 3))
+                                return;
+                            try {
+                                auto payload = request_json(req);
+                                auto callback = std::make_shared<HttpCallback>(std::move(cb));
+                                if (!runtime->executor.submit(
+                                        "token-admin", [payload = std::move(payload), callback] {
+                                            try {
+                                                runtime->service.upsert_token201(payload);
+                                                (*callback)(http(200, {{"status", "updated"}}));
+                                            } catch (const std::exception &) {
+                                                failure(*callback, 400, "invalid_token");
+                                            }
+                                        }))
+                                    failure(*callback, 503, "server_busy");
+                            } catch (const std::exception &) {
+                                failure(cb, 400, "invalid_json");
+                            }
+                        },
+                        {drogon::Post});
+    app.registerHandler("/api/v1/chargepoints/{1}/state",
+                        [](const drogon::HttpRequestPtr &req, HttpCallback &&cb, std::string id) {
+                            if (!authorize(req, cb, 1))
+                                return;
+                            auto callback = std::make_shared<HttpCallback>(std::move(cb));
+                            if (!runtime->executor.submit("api-read", [id, callback] {
+                                    try {
+                                        (*callback)(http(200, runtime->service.station_state(id)));
+                                    } catch (const ProtocolError &) {
+                                        failure(*callback, 400, "invalid_station");
+                                    } catch (const std::exception &) {
+                                        failure(*callback, 503, "database_unavailable");
+                                    }
+                                }))
+                                failure(*callback, 503, "server_busy");
+                        },
+                        {drogon::Get});
+    app.registerPreSendingAdvice([](const drogon::HttpRequestPtr &req,
+                                    const drogon::HttpResponsePtr &response) {
+        if (response->statusCode() == drogon::k101SwitchingProtocols)
+            response->addHeader("Sec-WebSocket-Protocol", req->getHeader("sec-websocket-protocol"));
+        response->addHeader("X-Content-Type-Options", "nosniff");
+    });
     app.getLoop()->runEvery(1.0, [] {
         std::vector<std::shared_ptr<Session>> sessions;
         {
@@ -514,6 +887,8 @@ int main(int argc, char **argv) {
             return 2;
         }
         runtime = std::make_unique<Runtime>(Config::environment(), argv[1]);
+        runtime->service.verify_schema();
+        runtime->service.recover_commands();
         std::cerr << "Runtime initialized\n";
         auto &app = drogon::app();
         app.setLogLevel(trantor::Logger::kWarn)

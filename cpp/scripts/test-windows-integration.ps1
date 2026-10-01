@@ -28,8 +28,13 @@ try {
   }
   if(-not $ready){throw 'Test DB did not become ready'}
   $env:OCPP_TEST_DB_PASSWORD=$password
-  & $Python "$Root/tests/integration.py" --server "$Root/build/$Configuration/ocpp_server.exe" --db-port $dbPort --port $serverPort --load-stations $LoadStations
-  if($LASTEXITCODE){throw 'Integration tests failed'}
+  $savedPreference=$ErrorActionPreference
+  $ErrorActionPreference='Continue'
+  try {
+    & $Python -u "$Root/tests/integration.py" --server "$Root/build/$Configuration/ocpp_server.exe" --db-port $dbPort --port $serverPort --load-stations $LoadStations
+    $testCode=$LASTEXITCODE
+  } finally { $ErrorActionPreference=$savedPreference }
+  if($testCode){throw 'Integration tests failed'}
 } finally {
   $env:OCPP_TEST_DB_PASSWORD=$previous
   if(-not $process.HasExited){Stop-Process -Id $process.Id; $process.WaitForExit()}

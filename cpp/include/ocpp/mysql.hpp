@@ -1,6 +1,7 @@
 #pragma once
 #include "security.hpp"
 #include <condition_variable>
+#include <list>
 #include <mutex>
 #include <optional>
 #include <vector>
@@ -13,13 +14,19 @@ struct SqlResult {
 };
 class Database {
     struct Slot {
+        struct Prepared {
+            std::string sql;
+            void *statement;
+        };
         void *connection = nullptr;
         bool busy = false;
+        std::list<Prepared> statements;
     };
     Config config_;
     std::vector<Slot> slots_;
     std::mutex mutex_;
     std::condition_variable available_;
+    static void close_slot(Slot &slot);
 
   public:
     class Lease {

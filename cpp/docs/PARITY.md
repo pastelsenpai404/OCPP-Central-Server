@@ -1,52 +1,26 @@
 # Migration parity
 
-Status on 2026-10-02: **incomplete**. No production switchover is authorized or performed.
+Status on 2026-10-02: the complete Java application migration remains **incomplete**. No production charger/billing switchover has been performed. Billing is restricted to an isolated sandbox, as requested.
 
-| Legacy area | C++ replacement | Status / release blockers |
+| Area | Current C++ implementation | Remaining work |
 | --- | --- | --- |
-| OCPP 1.6 JSON envelopes and validation | protocol.cpp, schema files | Implemented subset; certification and charger corpus pending |
-| Ten OCPP 1.6 incoming operations | service.cpp | Core SQL implemented; billing branches and vendor behavior not ported |
-| Tag authorization | service.cpp | Accepted/Invalid/Blocked/Expired and legacy concurrency policy; RFID billing/Schneider workflows pending |
-| Transaction start/stop | service.cpp | Ownership, core rows, replay, semantic dedup, basic status/reservation update; custom financial effects pending |
-| Meter values | service.cpp | Values/sample metadata persisted; paid-energy target stop and billing thresholds pending |
-| Charge-point commands | server.cpp | Seventeen commands; firmware/diagnostics destination policy pending; reservations/profiles/local-list task-result persistence pending |
-| WebSocket sessions and ping | server.cpp + pinned transport patch | Single-process sessions, masked frames, fragment handling/limits, timers; full RFC6455/OCPP suite and soak pending |
-| OCPP 1.2 JSON | none | Not ported; explicitly rejected |
-| OCPP 1.5 JSON | none | Not ported; explicitly rejected |
-| OCPP 1.2/1.5/1.6 SOAP + WS-Addressing | none | Not ported |
-| Java/jOOQ repository model | mysql.cpp, service.cpp | Core prepared statements; complete repository CRUD/views/filters/exports pending |
-| `/dev` API and legacy REST DTOs | new authenticated REST routes | Contracts changed; original routes and JSON shapes not reproduced |
-| JSP administration and forms | none | Not ported; includes profiles, reservations, users, tasks, settings, logs, signin/out |
-| Authentication and Spring sessions | fixed high-entropy role tokens | New non-browser interface only; user accounts, per-person roles, tenant isolation and secure browser login pending |
-| Charging profiles, local lists, reservations | schema validation / small reservation update | Full business lifecycle and durable command task state not ported |
-| Billing HTTP calls | raw transactional event outbox | Nine receiving calls not delivered; outbox worker, idempotency and reconciliation pending |
-| Billing SQL/parking/payment/paid-energy calculations | none | Six DB workflows and financial arithmetic not ported |
-| Settings and notification/mail | heartbeat interval read only | Settings write, notification rules, mail and internet/release probes not ported |
-| Background cleanup/jobs and unknown station/tag tracking | none | Not ported; require bounded persistence and retention decisions |
-| Windows native execution | MSVC Release build + isolated MariaDB tests | Verified for tested cases only |
-| Linux native execution | CMake + sanitizer CI definition | Not executed here |
-| Enterprise operations | example TLS gateway/systemd service + counters | Not deployed; HA, backup recovery, alerts, identity, audit and SBOM work pending |
-| Performance | heartbeat parse+schema microbenchmark | Full Java comparison, mixed workloads, RSS, p99 latency and soak pending |
-| Security assurance | security regression checks | Independent deployment pentest, dependency audit and OCA certification not performed |
+| OCPP 1.6 JSON | 14 incoming and 26 outgoing actions, including security extensions; strict schemas and direction checks | Charger corpus and independent OCA/security validation |
+| OCPP 2.0.1 JSON | 64 action pairs, 25 station-initiated actions and 40 CSMS commands with DataTransfer overlap; all directions exercised in integration | Full feature conformance, real chargers and positive certificate-provider paths |
+| OCPP 1.2/1.5 JSON | Version negotiation, WSDL-derived validation, normalized meters/status/boot and outgoing local-list spelling | Further vendor interoperability; configured bounds can reject oversized legacy fields |
+| OCPP 1.2/1.5/1.6 SOAP | SOAP 1.2 typed bodies, namespace/router checks, WS-Addressing, Basic authentication and explicit outgoing destinations | Per-action charger corpus and full addressing interoperability; errors return bounded SOAP 1.2 faults with safe correlation |
+| Transactions | Ownership and 1.6 replay/semantic dedup; 2.0.1 sequence log, late offline events and end-state protection | Physical charger reconciliation and legacy financial branches |
+| Meter persistence | Bounded 64-row prepared batches, total sample/message bounds, native units/metadata retained | Mixed fleet/TLS soak and billing metrology validation |
+| Commands/state | Durable tasks/audit, reply validation, local lists/versions, reservations/profiles and uncertain restart recovery without resending | Fleet orchestration, multi-process fencing and reconciliation |
+| PKI | CSR proof of possession/key-strength checks, PendingReview queue and device certificate commands | Trusted issuance/CA workflow, certificate authorization, OCSP and ISO 15118 contract/EXI providers; unconfigured positive paths fail closed |
+| 2.0.1 reports/device model | Durable report chunks/events, variable attributes and EVSE/security/firmware/log information | Complete report assemblies, request reconciliation and smart-charging optimizer |
+| Billing sandbox | Explicit THB tariffs, integer milliWh/minor currency arithmetic, parking grace and idempotent simulation ledger | Legacy six SQL/nine HTTP workflows, paid-energy stop, payment fixtures, receipts, reconciliation and gateways |
+| Admin/API application | New authenticated REST reads/provisioning, role separation and task/2.0.1/sandbox resources | Legacy /dev contracts, complete CRUD/filter/export, JSP pages and per-person/tenant identity |
+| Settings/jobs/notifications | Heartbeat settings, timers and command recovery | Full settings management, mail/rules, retention and unknown-station/tag workflows |
+| Database operations | Isolated MariaDB 10.11.18, verified TLS/pinned SSH, restricted app login and backup/restore checks | Extracted-package upgrades, alerting and backup retention |
+| Windows | MSVC Release build, core/integration tests and PowerShell launcher | Service installation/upgrades and long soak |
+| Linux | CMake dependencies and isolated DB/sanitizer CI definitions | Linux execution has not run here; neither workstation nor small live DB host has a build toolchain |
+| Assurance | Compiler hardening, bounded transports/XML/SQL, security regression and source advisory lookup | Independent pentest, fuzzing/sanitizers, complete SBOM, Java comparison, mixed-load saturation and HA tests |
 
-`java-inventory.csv` lists every original Java source file and its category. It is a scope inventory, not a claim that all those classes were translated. There are no placeholder implementations that report success for missing protocols or billing effects.
+Schema coverage and successful message dispatch are not certification or complete business-feature parity. java-inventory.csv remains the original source inventory. Original Java sources are unchanged.
 
-## Critical billing references
-
-Use `../../docs/external-endpoints.md` to inventory endpoint paths without copying legacy credentials. Relevant original sources:
-
-- `service/OcppTagService.java`: card authentication, billing station lookup, Schneider event cleanup.
-- `service/CentralSystemService16_Service.java`: connector status transitions, parking/receipt/preparing/suspend-EV flows.
-- `repository/impl/OcppServerRepositoryImpl.java`: connector creation, transaction initialization/completion, paid-energy stop and billing calculations.
-- `web/controller/ApiController.java`: start/stop/change-configuration, user/token functions, existing external response contracts.
-
-The existing database reference dumps describe structure, not valid payment fixtures. Port money/energy arithmetic with explicit units and decimal precision; reconcile representative outcomes against the original before enabling external calls. Newly generated C++ protocol events cannot be assumed to contain all values needed by the old billing endpoints.
-
-## Release evidence still needed
-
-1. Map and exercise every public route, protocol action and business workflow against the Java implementation.
-2. Run full database integration against a sanitized copy of the deployment schema, including deadlocks, restarts, network failures and migrations.
-3. Prove billing exactly-once effects through receiver idempotency and reconciliation, including partial failure and replay.
-4. Test Linux and Windows packaging and upgrades, credential rotation, gateway TLS, authorization and disaster recovery.
-5. Benchmark identical workloads against Java; report hardware, concurrency, mixed traffic, SQL/TLS settings, p50/p95/p99, RSS and errors.
-6. Run compiler sanitizers, fuzzing, dependency/SBOM review and independent deployment pentesting. Resolve findings before release.
+Original billing references: service/OcppTagService.java, service/CentralSystemService16_Service.java, repository/impl/OcppServerRepositoryImpl.java and web/controller/ApiController.java. The settlement sandbox defines a new explicit arithmetic contract; it does not reproduce their floating-point financial side effects or execute existing payments. Reconcile those workflows with sanitized payment fixtures before connecting them.

@@ -23,8 +23,15 @@ Database::Database(Config config) : config_(std::move(config)), slots_(config_.w
 }
 Database::~Database() {
     for (auto &s : slots_)
-        if (s.connection)
-            mysql_close(static_cast<MYSQL *>(s.connection));
+        close_slot(s);
+}
+void Database::close_slot(Slot &slot) {
+    for (auto &prepared : slot.statements)
+        mysql_stmt_close(static_cast<MYSQL_STMT *>(prepared.statement));
+    slot.statements.clear();
+    if (slot.connection)
+        mysql_close(static_cast<MYSQL *>(slot.connection));
+    slot.connection = nullptr;
 }
 Database::Lease Database::acquire() {
     struct ThreadState {
@@ -58,6 +65,9 @@ Database::Lease Database::acquire() {
             mysql_options(connection.get(), MYSQL_OPT_CONNECT_TIMEOUT, &timeout);
             mysql_options(connection.get(), MYSQL_OPT_READ_TIMEOUT, &timeout);
             mysql_options(connection.get(), MYSQL_OPT_WRITE_TIMEOUT, &timeout);
+            my_bool reconnect = 0;
+            if (mysql_options(connection.get(), MYSQL_OPT_RECONNECT, &reconnect))
+                throw std::runtime_error("Database reconnect policy failed");
             mysql_options(connection.get(), MYSQL_SET_CHARSET_NAME, "utf8mb4");
             if (!config_.db_ca.empty()) {
                 my_bool yes = 1;
@@ -93,8 +103,7 @@ Database::Lease::~Lease() {
     if (transaction_ && mysql_query(static_cast<MYSQL *>(slot.connection), "ROLLBACK"))
         broken_ = true;
     if (broken_ && slot.connection) {
-        mysql_close(static_cast<MYSQL *>(slot.connection));
-        slot.connection = nullptr;
+        Database::close_slot(slot);
     }
     {
         std::lock_guard lock(pool_->mutex_);
@@ -111,15 +120,40 @@ void Database::Lease::commit() {
     transaction_ = false;
 }
 SqlResult Database::Lease::execute(std::string_view sql, const Parameters &parameters) {
-    auto *connection = static_cast<MYSQL *>(pool_->slots_[index_].connection);
-    std::unique_ptr<MYSQL_STMT, decltype(&mysql_stmt_close)> stmt(mysql_stmt_init(connection),
-                                                                  mysql_stmt_close);
+    auto &slot = pool_->slots_[index_];
+    auto *connection = static_cast<MYSQL *>(slot.connection);
     auto failure = [&] {
         broken_ = true;
         throw std::runtime_error("Database statement failed");
     };
-    if (!stmt || mysql_stmt_prepare(stmt.get(), sql.data(), static_cast<unsigned long>(sql.size())))
-        failure();
+    if (sql.size() > 65536)
+        throw std::logic_error("SQL statement size limit");
+    auto found = std::find_if(slot.statements.begin(), slot.statements.end(),
+                              [&](const Slot::Prepared &p) { return p.sql == sql; });
+    MYSQL_STMT *handle = nullptr;
+    if (found != slot.statements.end()) {
+        handle = static_cast<MYSQL_STMT *>(found->statement);
+        slot.statements.splice(slot.statements.begin(), slot.statements, found);
+    } else {
+        std::unique_ptr<MYSQL_STMT, decltype(&mysql_stmt_close)> candidate(
+            mysql_stmt_init(connection), mysql_stmt_close);
+        if (!candidate ||
+            mysql_stmt_prepare(candidate.get(), sql.data(), static_cast<unsigned long>(sql.size())))
+            failure();
+        if (slot.statements.size() >= 64) {
+            mysql_stmt_close(static_cast<MYSQL_STMT *>(slot.statements.back().statement));
+            slot.statements.pop_back();
+        }
+        slot.statements.push_front({std::string(sql), candidate.get()});
+        handle = candidate.release();
+    }
+    // Cache owns the handle. Every execution releases buffered results, including
+    // exception paths; parameters and output buffers are rebound on each use.
+    const auto release = [this](MYSQL_STMT *s) {
+        if (mysql_stmt_field_count(s) && mysql_stmt_free_result(s))
+            broken_ = true;
+    };
+    std::unique_ptr<MYSQL_STMT, decltype(release)> stmt(handle, release);
     if (mysql_stmt_param_count(stmt.get()) != parameters.size())
         throw std::logic_error("SQL parameter count mismatch");
     std::vector<MYSQL_BIND> bind(parameters.size());
