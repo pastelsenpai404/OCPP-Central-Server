@@ -54,6 +54,10 @@ It checks the prepared configuration, opens a pinned SSH tunnel, prompts for the
 
 The separate `run-db-tunnel.ps1` and `run-server.ps1` launchers remain available. See [database setup and maintenance](docs/DATABASE.md). The initialization steps below are for a different/new configuration.
 
+Versioned templates: [config.local.json.example](config.local.json.example) lists all supported settings with dummy credentials; [db-ca.local.pem.example](db-ca.local.pem.example) explains how to obtain the database CA. Neither template contains working credentials or a real CA certificate. Build outputs, dependencies, caches and logs are generated locally and do not need templates. No templates are provided for `material/`.
+
+For a new checkout, use `-InitConfig` below to generate fresh API tokens and station credentials, then fill in the database settings using the example as a reference. Obtain the real CA separately and save it as `db-ca.local.pem`; set `OCPP_DB_CA` to that filename (or leave it empty for a local database that does not require TLS). The SSH tunnel launcher uses local port `13307` by default, while direct database connections use their configured database port. Set `OCPP_PUBLIC_ORIGIN` to an exact HTTPS origin when running behind the production proxy; leave it empty for local testing. Do not overwrite an existing private configuration or commit the filled-in files.
+
 ```powershell
 ./run-server.ps1 -InitConfig
 notepad ./config.local.json
