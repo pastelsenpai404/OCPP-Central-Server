@@ -24,14 +24,14 @@ The fresh schema contains 15 legacy table definitions plus 23 C++ runtime/protoc
 In the first PowerShell console:
 
 ```powershell
-cd 'C:\Users\usEr\Desktop\funny_project\OCPP Central Server\cpp'
+cd 'C:\Users\usEr\Desktop\funny_project\OCPP Central Server\ocpp_csms'
 .\run-db-tunnel.ps1
 ```
 
 Enter the passphrase for `../material/nene_key_private.ppk` when PuTTY prompts. The script pins the existing deployment's SSH host fingerprint and binds the local forward only to loopback. Leave this console open. In a second console:
 
 ```powershell
-cd 'C:\Users\usEr\Desktop\funny_project\OCPP Central Server\cpp'
+cd 'C:\Users\usEr\Desktop\funny_project\OCPP Central Server\ocpp_csms'
 .\run-server.ps1
 ```
 

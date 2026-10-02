@@ -1,0 +1,5 @@
+add_library(billing_management_application STATIC src/application/quote_preview.cpp)
+target_include_directories(billing_management_application PUBLIC include)
+target_link_libraries(billing_management_application PUBLIC billing_domain PRIVATE billing_options)
+add_executable(billing_management_backend src/interfaces/cli/main.cpp)
+target_link_libraries(billing_management_backend PRIVATE billing_management_application billing_options)

@@ -1,0 +1,12 @@
+{
+  "name": "@billing/ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./components/*": "./components/*",
+    "./wasm": "./wasm/quote.ts",
+    "./styles.css": "./web/styles.css"
+  },
+  "peerDependencies": { "svelte": "5.57.1" }
+}

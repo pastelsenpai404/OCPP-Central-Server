@@ -1,0 +1,47 @@
+name: Billing foundation validation
+on:
+  push:
+    paths: ['billing_management/**', '.github/workflows/billing.yml']
+  pull_request:
+    paths: ['billing_management/**', '.github/workflows/billing.yml']
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S billing_management -B billing_management/build/native -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build billing_management/build/native --config Release --parallel 2
+      - run: ctest --test-dir billing_management/build/native -C Release --output-on-failure
+  wasm:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: billing_management/package-lock.json
+      - name: Pinned Emscripten SDK
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          cd "$RUNNER_TEMP/emsdk"
+          ./emsdk install 4.0.23
+          ./emsdk activate 4.0.23
+      - name: Build both browser applications
+        shell: bash
+        run: |
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          emcmake cmake -S billing_management -B billing_management/build/wasm -DCMAKE_BUILD_TYPE=Release
+          cmake --build billing_management/build/wasm --parallel 2
+          node billing_management/tests/wasm/quote-tests.mjs
+      - name: SvelteKit checks and production builds
+        working-directory: billing_management
+        run: |
+          npm ci
+          npm run check
+          npm run build

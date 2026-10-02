@@ -1,9 +1,9 @@
 name: C++ validation
 on:
   push:
-    paths: ['cpp/**', '.github/workflows/cpp.yml']
+    paths: ['ocpp_csms/**', '.github/workflows/cpp.yml']
   pull_request:
-    paths: ['cpp/**', '.github/workflows/cpp.yml']
+    paths: ['ocpp_csms/**', '.github/workflows/cpp.yml']
 permissions:
   contents: read
 jobs:
@@ -14,26 +14,26 @@ jobs:
       - name: Dependencies
         run: sudo apt-get update && sudo apt-get install -y libjsoncpp-dev zlib1g-dev libmariadb-dev libssl-dev libcurl4-openssl-dev uuid-dev ninja-build mariadb-server mariadb-client python3-venv
       - name: Module boundaries
-        run: python3 cpp/scripts/check-architecture.py
+        run: python3 ocpp_csms/scripts/check-architecture.py
       - name: Configure
-        run: cmake -S cpp -B cpp/build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DOCPP_SANITIZERS=ON
+        run: cmake -S ocpp_csms -B ocpp_csms/build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DOCPP_SANITIZERS=ON
       - name: Build
-        run: cmake --build cpp/build --parallel 2
+        run: cmake --build ocpp_csms/build --parallel 2
       - name: Core checks
-        run: ctest --test-dir cpp/build --output-on-failure
+        run: ctest --test-dir ocpp_csms/build --output-on-failure
       - name: Integration dependencies
-        run: python3 -m venv cpp/.venv && cpp/.venv/bin/pip install websockets==15.0.1 PyMySQL==1.1.2
+        run: python3 -m venv ocpp_csms/.venv && ocpp_csms/.venv/bin/pip install websockets==15.0.1 PyMySQL==1.1.2
       - name: Isolated database integration
-        run: PATH="$PWD/cpp/.venv/bin:$PATH" bash cpp/scripts/test-linux-integration.sh
+        run: PATH="$PWD/ocpp_csms/.venv/bin:$PATH" bash ocpp_csms/scripts/test-linux-integration.sh
   windows:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
       - name: Module boundaries
-        run: python cpp/scripts/check-architecture.py
+        run: python ocpp_csms/scripts/check-architecture.py
       - name: Deployment source package
         shell: powershell
-        run: ./cpp/deploy.ps1 -PackageOnly
+        run: ./ocpp_csms/deploy.ps1 -PackageOnly
       - name: Build and core checks
         shell: powershell
-        run: ./cpp/scripts/build-windows.ps1
+        run: ./ocpp_csms/scripts/build-windows.ps1

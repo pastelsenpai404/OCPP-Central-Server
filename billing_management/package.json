@@ -1,0 +1,16 @@
+{
+  "name": "billing-management-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.17.0" },
+  "workspaces": ["management/frontend", "customer/frontend", "shared/frontend"],
+  "scripts": {
+    "wasm:sync": "node scripts/sync-wasm.mjs",
+    "check": "npm run check --workspaces --if-present",
+    "build": "npm run wasm:sync && npm run build --workspaces --if-present",
+    "dev:management": "npm run dev --workspace @billing/management-frontend",
+    "dev:customer": "npm run dev --workspace @billing/customer-frontend",
+    "test:wasm": "node tests/wasm/quote-tests.mjs"
+  }
+}

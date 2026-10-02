@@ -1,12 +1,12 @@
 # Deploy from Windows to 104.248.96.73
 
-The launcher is `cpp/deploy.ps1`. Its default host is the existing Debian server, default hostname is `ocpp.barryofeverything.com`, and default application port is loopback-only 5003. It uses the pinned SSH host key and your existing PuTTY key through Pageant. It never saves the SSH passphrase or prints application credentials.
+The launcher is `ocpp_csms/deploy.ps1`. Its default host is the existing Debian server, default hostname is `ocpp.barryofeverything.com`, and default application port is loopback-only 5003. It uses the pinned SSH host key and your existing PuTTY key through Pageant. It never saves the SSH passphrase or prints application credentials.
 
 ## First deployment
 
 Install PuTTY (plink, pscp, Pageant) on Windows and keep `../material/nene_key_private.ppk` accessible. Windows `tar.exe` is also required. The server must retain its existing isolated `ocpp-db.service` and private `/etc/ocpp-cpp/config.local.json` configuration.
 
-In DigitalOcean DNS for `barryofeverything.com`, create **A / ocpp / 104.248.96.73 / TTL 300**. Avoid a conflicting CNAME or AAAA record. Then run from the `cpp` directory:
+In DigitalOcean DNS for `barryofeverything.com`, create **A / ocpp / 104.248.96.73 / TTL 300**. Avoid a conflicting CNAME or AAAA record. Then run from the `ocpp_csms` directory:
 
 ```powershell
 ./deploy.ps1
@@ -61,6 +61,6 @@ This takes an integrity-checked backup of `ocpp_cpp` first and accepts only `CRE
 - TLS: `certbot certificates`, `certbot renew --dry-run`, `systemctl status certbot.timer`.
 - Archives, logs and previous releases are retained for diagnosis; do not redistribute private runtime files or whole cache directories.
 
-`-PackageOnly` creates an archive without contacting the server. `-BuildJobs` accepts 1–4; keep 1 on this host. `-Port` changes the loopback application port and rendered proxy together; choose an unused port.
+`-PackageOnly` creates an archive without contacting the server. `-BuildJobs` accepts 1â€“4; keep 1 on this host. `-Port` changes the loopback application port and rendered proxy together; choose an unused port.
 
 Public access requires DNS control and inbound ports 80/443 at both host and cloud firewall. The script does not change firewall policy or other virtual hosts. The service and isolated billing sandbox remain a partial migration; deployment is not evidence of an independent pentest or complete Java parity.

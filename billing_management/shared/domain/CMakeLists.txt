@@ -1,0 +1,3 @@
+add_library(billing_domain STATIC src/quote.cpp)
+target_include_directories(billing_domain PUBLIC include)
+target_link_libraries(billing_domain PRIVATE billing_options)

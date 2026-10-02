@@ -1,0 +1,3 @@
+add_executable(billing_domain_tests unit/quote_tests.cpp)
+target_link_libraries(billing_domain_tests PRIVATE billing_domain billing_options)
+add_test(NAME billing_domain COMMAND billing_domain_tests)
