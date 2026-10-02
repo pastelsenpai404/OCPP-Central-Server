@@ -2,6 +2,10 @@
 
 The launcher is `ocpp_csms/deploy.ps1`. Its default host is the existing Debian server, default hostname is `ocpp.barryofeverything.com`, and default application port is loopback-only 5003. It uses the pinned SSH host key and your existing PuTTY key through Pageant. It never saves the SSH passphrase or prints application credentials.
 
+To deploy CSMS together with the management/customer billing sites and APIs, use
+the repository-root `deploy.ps1` instead. It defaults to `-Target All`; this product
+launcher deploys CSMS only. See [billing DNS and deployment](../../billing_management/docs/DEPLOYMENT.md).
+
 ## First deployment
 
 Install PuTTY (plink, pscp, Pageant) on Windows and keep `../material/nene_key_private.ppk` accessible. Windows `tar.exe` is also required. The server must retain its existing isolated `ocpp-db.service` and private `/etc/ocpp-cpp/config.local.json` configuration.

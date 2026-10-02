@@ -1,6 +1,6 @@
 # Billing management
 
-C++20 billing foundation for two separate applications, with SvelteKit 3 / Svelte 5 / TypeScript frontends and C++ WebAssembly. **Current scope: local sandbox quote CLI backends and browser previews.** There are no HTTP APIs, customer login, invoice persistence, taxes, payment gateways or production billing yet. Existing CSMS billing and production databases are not changed.
+C++20 billing foundation for two separate applications, with SvelteKit 3 / Svelte 5 / TypeScript frontends and C++ WebAssembly. **Current scope: sandbox quote CLI/HTTP backends and browser previews.** Customer login, invoice persistence, taxes, payment gateways and production billing are not implemented yet. Existing CSMS billing and production databases are not changed.
 
 ```text
 billing_management/
@@ -42,6 +42,11 @@ ctest --test-dir build/native --output-on-failure
 ```
 
 Both commands emit a sandbox subtotal of `1125` satang for 1500 Wh at 750 satang/kWh. Invalid inputs return exit code 2. The CLI is an initial application adapter; it is not a running HTTP server.
+
+Enable `-DBILLING_BUILD_HTTP=ON` in a separate native build directory to build
+`billing_management_api` and `billing_customer_api`. These expose authenticated
+sandbox quotes and readiness on loopback 5500/5501, with independently configured
+API tokens. See [deployment, DNS and API configuration](docs/DEPLOYMENT.md).
 
 ## SvelteKit + WebAssembly frontends
 

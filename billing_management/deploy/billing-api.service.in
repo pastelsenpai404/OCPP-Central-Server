@@ -1,0 +1,31 @@
+[Unit]
+Description=Billing @AREA@ sandbox API
+After=network.target
+
+[Service]
+Type=simple
+User=billing-@AREA@
+Group=billing-@AREA@
+EnvironmentFile=/etc/billing-management/@AREA@.env
+WorkingDirectory=/opt/billing-management/current
+ExecStart=/opt/billing-management/current/bin/billing_@AREA@_api
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+CapabilityBoundingSet=
+UMask=0077
+MemoryMax=128M
+TasksMax=32
+LimitNOFILE=1024
+
+[Install]
+WantedBy=multi-user.target

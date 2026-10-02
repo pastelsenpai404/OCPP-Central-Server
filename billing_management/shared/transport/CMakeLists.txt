@@ -1,0 +1,3 @@
+add_library(billing_http STATIC src/http_server.cpp)
+target_include_directories(billing_http PUBLIC include)
+target_link_libraries(billing_http PUBLIC billing_domain PRIVATE billing_http_dependencies billing_options)

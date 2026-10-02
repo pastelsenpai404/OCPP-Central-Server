@@ -14,9 +14,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - run: cmake -S billing_management -B billing_management/build/native -DCMAKE_BUILD_TYPE=Release
+      - run: cmake -S billing_management -B billing_management/build/native -DCMAKE_BUILD_TYPE=Release -DBILLING_BUILD_HTTP=ON
       - run: cmake --build billing_management/build/native --config Release --parallel 2
       - run: ctest --test-dir billing_management/build/native -C Release --output-on-failure
+      - run: python billing_management/tests/unit/deploy_config_test.py
+      - run: python billing_management/tests/integration/http_smoke.py billing_management/build/native
   wasm:
     runs-on: ubuntu-24.04
     steps:

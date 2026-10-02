@@ -21,6 +21,9 @@ composition root -> concrete adapters
 - `src/interfaces`: input parsing, authorization adapters and response mapping.
 - `shared/domain`: narrowly shared pure C++ rules. It has no database, HTTP or browser dependencies.
 - `shared/contracts`: explicitly versioned inter-product API/event definitions. Share schemas, not database tables or private implementation headers.
+- `shared/transport`: bounded loopback HTTP adapter, with application quote handlers
+  injected by each executable. Separate environment configuration supplies per-app
+  bearer tokens, exact API Host and allowed frontend origin. Nginx terminates TLS.
 
 Each backend has its own executable and application target. Neither may include the
 other backend's headers or `ocpp_csms` source. Both use `billing_domain`, which is also
