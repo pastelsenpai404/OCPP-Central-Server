@@ -40,6 +40,10 @@ Config Config::environment() {
     Config config;
     config.port = static_cast<unsigned short>(bounded_env("OCPP_PORT", 5003, 65535));
     config.workers = bounded_env("OCPP_WORKERS", 4, 32);
+    config.public_origin = env("OCPP_PUBLIC_ORIGIN", false);
+    if (!config.public_origin.empty() &&
+        transfer_origin(config.public_origin) != config.public_origin)
+        throw std::runtime_error("OCPP_PUBLIC_ORIGIN must be an exact HTTPS origin without a path");
     config.db_name = env("OCPP_DB_NAME");
     config.db_user = env("OCPP_DB_USER");
     config.db_password = env("OCPP_DB_PASSWORD");
@@ -132,5 +136,14 @@ int Config::role(std::string_view authorization) const {
     const bool admin = constant_equal(token, admin_token),
                op = constant_equal(token, operator_token), read = constant_equal(token, read_token);
     return admin ? 3 : op ? 2 : read ? 1 : 0;
+}
+bool Config::browser_origin_allowed(std::string_view origin, std::string_view host,
+                                    bool secure) const {
+    if (!public_origin.empty()) {
+        return host == std::string_view(public_origin).substr(8) &&
+               (origin.empty() || origin == public_origin);
+    }
+    return origin.empty() ||
+           origin == std::string(secure ? "https://" : "http://") + std::string(host);
 }
 } // namespace ocpp

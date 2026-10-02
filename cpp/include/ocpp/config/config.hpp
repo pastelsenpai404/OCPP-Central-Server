@@ -14,7 +14,10 @@ struct Config {
     std::set<std::string> soap_origins;
     Json soap_endpoints = Json::object();
     std::string read_token, operator_token, admin_token;
+    // Exact HTTPS origin served by the gateway; forwarded headers are not trusted.
+    std::string public_origin;
     static Config environment();
     int role(std::string_view authorization) const;
+    bool browser_origin_allowed(std::string_view origin, std::string_view host, bool secure) const;
 };
 } // namespace ocpp

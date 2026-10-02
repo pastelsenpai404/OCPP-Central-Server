@@ -1,0 +1,54 @@
+# Managed by cpp/deploy.ps1. Upgrade is forwarded for charger WebSockets.
+map $http_upgrade $ocpp_cpp_connection {
+    default upgrade;
+    '' close;
+}
+server {
+    listen 80;
+    listen [::]:80;
+    server_name @DOMAIN@;
+    if ($host != @DOMAIN@) { return 444; }
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/ocpp-acme;
+        default_type text/plain;
+        try_files $uri =404;
+    }
+    location / { return 308 https://@DOMAIN@$request_uri; }
+}
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name @DOMAIN@;
+    if ($host != @DOMAIN@) { return 444; }
+    ssl_certificate /etc/letsencrypt/live/@DOMAIN@/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/@DOMAIN@/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:OcppTLS:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+    server_tokens off;
+    client_max_body_size 64k;
+    client_body_timeout 15s;
+    client_header_timeout 15s;
+    keepalive_timeout 30s;
+    access_log /var/log/nginx/ocpp-cpp.access.log;
+    error_log /var/log/nginx/ocpp-cpp.error.log warn;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy same-origin always;
+    location / {
+        proxy_pass http://127.0.0.1:@PORT@;
+        proxy_http_version 1.1;
+        proxy_set_header Host @DOMAIN@;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header Forwarded "";
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $ocpp_cpp_connection;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 60s;
+        proxy_connect_timeout 5s;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+}

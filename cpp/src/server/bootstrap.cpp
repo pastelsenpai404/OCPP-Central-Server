@@ -26,6 +26,9 @@ int run_server(int argc, char **argv) {
             .setKeepaliveRequestsNumber(100)
             .setPipeliningRequestsNumber(2)
             .setServerHeaderField("");
+        // Assets are embedded routes; never serve arbitrary files from the working directory.
+        app.setFileTypes({}).setImplicitPageEnable(false);
+        app.setUploadPath((std::filesystem::temp_directory_path() / "ocpp-cpp-uploads").string());
         app.disableSession();
         register_routes();
         std::cerr << "Routes initialized; starting listener\n";

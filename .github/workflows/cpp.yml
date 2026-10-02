@@ -31,6 +31,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Module boundaries
         run: python cpp/scripts/check-architecture.py
+      - name: Deployment source package
+        shell: powershell
+        run: ./cpp/deploy.ps1 -PackageOnly
       - name: Build and core checks
         shell: powershell
         run: ./cpp/scripts/build-windows.ps1

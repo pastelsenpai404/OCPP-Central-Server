@@ -50,7 +50,7 @@ if ($null -eq $config -or $config -isnot [pscustomobject]) { throw 'Configuratio
 $values = [ordered]@{
     OCPP_DB_HOST = '127.0.0.1'; OCPP_DB_PORT = '3306'
     OCPP_DB_NAME = ''; OCPP_DB_USER = ''; OCPP_DB_PASSWORD = ''; OCPP_DB_CA = ''
-    OCPP_PORT = '5003'; OCPP_WORKERS = '4'
+    OCPP_PORT = '5003'; OCPP_WORKERS = '4'; OCPP_PUBLIC_ORIGIN = ''
     OCPP_TRANSFER_ORIGINS = '[]'
     OCPP_SOAP_ORIGINS = '[]'; OCPP_SOAP_ENDPOINTS = '{}'
     OCPP_READ_TOKEN = ''; OCPP_OPERATOR_TOKEN = ''; OCPP_ADMIN_TOKEN = ''; OCPP_STATION_SECRETS = ''

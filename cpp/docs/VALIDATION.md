@@ -6,12 +6,12 @@
 
 - Windows 11 Home 10.0.26200 x64, Visual Studio 2022 Build Tools, MSVC 14.44.35207, CMake, Release mode.
 - Own C++ targets compile with `/W4 /WX /sdl /guard:cf`; dependency warning settings differ.
-- CTest: core executable passed **94 assertions**, covering malformed messages, duplicate JSON members, size/depth bounds, schema constraints, timestamps, authorization roles, rates, queue capacity and FIFO order.
-- Isolated MariaDB 11.4.5 integration: **544 assertions passed**, against checked-in legacy schema definitions without data and all six additive migrations.
+- Latest CTest: core executable passed **100 assertions**, including HTTPS gateway origin policy. Architecture and deployment-config checks also passed (four secret/config serialization tests).
+- Latest isolated MariaDB 11.4.5 integration: **545 assertions passed**, against checked-in legacy schema definitions without data and all six additive migrations, including filesystem isolation and headless Edge UI checks.
 - Cases include missing credentials/wrong subprotocol, reader/admin permissions, pagination, boot and heartbeat, all ten incoming actions, tag blocking and authorization replay after revocation, transaction/meter/status persistence, same-ID replay, semantic start/stop deduplication, conflicting IDs, cross-station denial, outbox atomicity, outbound command success/invalid reply/CALLERROR/30-second timeout, reconnect replay, duplicate-key rejection, valid fragments with interleaved ping, aggregate fragment limits and unmasked-frame rejection.
 - Test databases used newly generated names and credentials on separately started ephemeral loopback ports. These integration tests touch only their temporary database. Separate setup/smoke checks use the newly provisioned, isolated remote C++ database.
 - The original Java `src`, `pom.xml` and `docs` have no tracked changes.
-- Linux build, sanitizer runs, extended fuzzing, full RFC6455/OCA suites, migrations against real deployment data, and production gateway/service operation have **not** been executed.
+- Linux sanitizer runs, extended fuzzing, full RFC6455/OCA suites and migration against historical production data have **not** been executed. Native Linux build/service checks are recorded below; public HTTPS activation is pending DNS.
 
 Additional current cases cover every 2.0.1 action direction; local-list/profile/reservation persistence; variable-result correlation; late/conflicting transaction events; complete 50-character vendor metadata; legacy JSON conversions; typed SOAP inputs/router and actual outgoing HTTP commands; namespace/correlation/redirect rejection; SOAP Sender/Receiver faults, escaped text, authenticated correlation and malformed-message rejection; RSA/P256 CSR verification and forged/weak key rejection; 512-item bulk inserts; integer sandbox billing and idempotency; prepared-statement reuse; an explicitly killed test DB connection and safe reconnection; and an actual server process crash followed by uncertain task recovery without redispatch.
 
@@ -41,6 +41,16 @@ The modular source/header layout, separate CMake implementation libraries, split
 - `git diff --check`: passed.
 
 Linux targets and CI commands were updated, but Linux execution was not performed for this restructuring. Performance was not remeasured; the older samples below are not results for the refactored binary.
+
+## Deployment launcher and native Linux checks
+
+`deploy.ps1 -PrepareOnly` was executed from Windows through pinned PuTTY/Pageant SSH against the prepared Debian 12 host. GCC 12.2/CMake 3.25 Release (`-O2`, own-target warnings-as-errors) built the actual source. Linux CTest passed all three checks: **100 core assertions**, module boundaries and **four deployment-config tests**. Windows was rebuilt after explicit filter/controller registration and filesystem isolation changes; **545 isolated integration/UI assertions passed**.
+
+The latest `ocpp-cpp.service` starts as the restricted `ocpp` account and reads the existing isolated DB through verified CA configuration. **11 read-only deployment checks passed**: HTTP readiness/UI, authenticated admin metadata, allowed/denied origins and Host, unauthenticated rejection on all three WebSocket path families, an authenticated CP01 handshake followed by normal close, and denial of working-directory static files. No OCPP transaction or billing mutation was sent by these smoke checks. Local and server API/station credentials were compared in memory and matched.
+
+The HTTP ACME virtual host returns 503 for the application until TLS activation. The complete TLS/WebSocket Nginx template passed `nginx -t` in an isolated configuration using an existing certificate only for syntax validation; it was not published with that certificate. The original HTTP site returned 200, Nginx and the isolated DB remained active, and the legacy DB still listened on 3306. Temporary build swap was removed. An intentional `-Port 7777` deployment aborted at preflight because Nginx owned that port, leaving the active application unchanged. A failed candidate smoke check also exercised restoration of the previous symlink/environment/unit; the previous service had been inactive in that case.
+
+DNS for `ocpp.barryofeverything.com` was absent at validation time. Dedicated certificate issuance, actual public HTTPS/WSS smoke checks and Certbot renewal dry-run remain unexecuted until the user creates its DigitalOcean A record. The launcher contains those activation/smoke steps. Linux full database integration, sanitizer checks, capacity/soak tests and independent pentest remain outside this deployment evidence.
 
 ## Performance samples
 

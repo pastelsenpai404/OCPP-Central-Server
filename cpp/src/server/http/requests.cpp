@@ -6,10 +6,8 @@ bool authorize(const drogon::HttpRequestPtr &req, const HttpCallback &cb, int ro
         failure(cb, 401, "unauthorized");
         return false;
     }
-    const auto &origin = req->getHeader("origin");
-    const auto expected_origin =
-        std::string(req->isOnSecureConnection() ? "https://" : "http://") + req->getHeader("host");
-    if ((!origin.empty() && origin != expected_origin) ||
+    if (!runtime->config.browser_origin_allowed(req->getHeader("origin"), req->getHeader("host"),
+                                                req->isOnSecureConnection()) ||
         req->getHeader("sec-fetch-site") == "cross-site") {
         failure(cb, 403, "browser_origin_not_allowed");
         return false;

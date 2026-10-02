@@ -156,6 +156,21 @@ int main(int argc, char **argv) {
             },
             "Negative transaction sequence");
         Config policy;
+        check(policy.browser_origin_allowed("http://localhost:5003", "localhost:5003", false),
+              "Direct HTTP same origin");
+        check(!policy.browser_origin_allowed("https://foreign.example", "localhost:5003", false),
+              "Foreign direct origin denied");
+        policy.public_origin = "https://ocpp.example.test";
+        check(
+            policy.browser_origin_allowed("https://ocpp.example.test", "ocpp.example.test", false),
+            "Configured HTTPS gateway origin over loopback HTTP");
+        check(
+            !policy.browser_origin_allowed("http://ocpp.example.test", "ocpp.example.test", false),
+            "Gateway downgrade origin denied");
+        check(!policy.browser_origin_allowed("https://ocpp.example.test", "foreign.example", false),
+              "Gateway host mismatch denied");
+        check(policy.browser_origin_allowed("", "ocpp.example.test", false),
+              "Non-browser gateway API request");
         policy.transfer_origins.insert("https://transfers.example.test");
         validate_command(schemas, policy, "UpdateFirmware",
                          {{"location", "https://transfers.example.test/firmware.bin"},

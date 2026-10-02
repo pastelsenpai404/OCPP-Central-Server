@@ -64,6 +64,7 @@ void check_command(const std::string &station, const std::string &action,
 void command(const std::string &station, const std::string &action, ocpp::Json payload,
              const std::string &id, Completion complete);
 void register_routes();
+void register_station_transport();
 void register_admin_routes();
 void register_soap_routes();
 void register_maintenance();

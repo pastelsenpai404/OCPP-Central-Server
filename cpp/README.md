@@ -28,6 +28,10 @@ Open `http://127.0.0.1:5003/` after `run-local.ps1` reports READY. The Control r
 
 See [architecture and module boundaries](docs/ARCHITECTURE.md) and [team development rules](CONTRIBUTING.md). Source, public headers, build targets and tests are grouped by responsibility. Run `python scripts/check-architecture.py` before review; CTest also runs this check when Python is available.
 
+## Deploy to the prepared Linux host
+
+Run `./deploy.ps1` for `ocpp.barryofeverything.com`, or `./deploy.ps1 -CreateDns` to enter a DigitalOcean DNS token at runtime. The script builds Linux sources, installs a restricted systemd service, configures Nginx/WebSocket proxying and HTTPS renewal, and verifies readiness. DNS must point to `104.248.96.73`; `-PrepareOnly` builds/tests the server while waiting for DNS. See [deployment instructions and recovery](docs/DEPLOYMENT.md).
+
 ## Build on Windows
 
 Requires Git, Visual Studio 2022 C++ Build Tools with its CMake component, and internet access for pinned sources. Dependencies install under `.deps/`; no system compiler or database service is installed.

@@ -35,7 +35,7 @@ cd 'C:\Users\usEr\Desktop\funny_project\OCPP Central Server\cpp'
 .\run-server.ps1
 ```
 
-The server listens on `http://127.0.0.1:5003`. Stop with Ctrl+C in each console. The passphrase is not saved in either launcher. The DB configuration is already filled in. The C++ application is not deployed as a Linux service by this database setup.
+The server listens on `http://127.0.0.1:5003`. Stop with Ctrl+C in each console. The passphrase is not saved in either launcher. The DB configuration is already filled in. The database setup does not itself deploy the application; use `deploy.ps1` and the [deployment guide](DEPLOYMENT.md) to install `ocpp-cpp.service`, Nginx and HTTPS on the prepared host.
 
 ## TLS
 

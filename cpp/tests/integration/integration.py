@@ -59,6 +59,18 @@ def fixture(cursor):
     cursor.execute("INSERT INTO ocpp_tag(id_tag,max_active_transaction_count) VALUES('TAG',1)")
 
 async def scenarios(port, tokens, password, db):
+    probe=ROOT/('static-probe-'+secrets.token_hex(8)+'.txt')
+    try:
+        probe.write_text('private-test-sentinel',encoding='utf-8')
+        request=urllib.request.Request(f'http://127.0.0.1:{port}/{probe.name}')
+        try:
+            response=urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request,timeout=5)
+        except urllib.error.HTTPError as error:
+            response=error
+        with response:
+            check(response.status==404,'working-directory files are not public static assets')
+    finally:
+        probe.unlink(missing_ok=True)
     uri = f"ws://127.0.0.1:{port}/ocpp/CP_TEST"
     header = {"Authorization": "Basic " + base64.b64encode(("CP_TEST:"+password).encode()).decode()}
     for auth, protocols in (({}, ["ocpp1.6"]), (header, ["ocpp1.7"])):

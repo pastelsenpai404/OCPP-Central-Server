@@ -3,7 +3,7 @@
 #include <drogon/WebSocketController.h>
 
 namespace ocpp::server {
-class StationAuth : public drogon::HttpFilter<StationAuth> {
+class StationAuth : public drogon::HttpFilter<StationAuth, false> {
   public:
     void doFilter(const drogon::HttpRequestPtr &request, drogon::FilterCallback &&reject,
                   drogon::FilterChainCallback &&next) override {
@@ -49,7 +49,7 @@ class StationAuth : public drogon::HttpFilter<StationAuth> {
             callbacks->first(http(503, {{"error", "server_busy"}}));
     }
 };
-class OcppSocket : public drogon::WebSocketController<OcppSocket> {
+class OcppSocket : public drogon::WebSocketController<OcppSocket, false> {
   public:
     WS_PATH_LIST_BEGIN
     WS_ADD_PATH_VIA_REGEX("^/(steve|develop)/websocket/CentralSystemService/[A-Za-z0-9_-]{1,64}$",
@@ -215,4 +215,12 @@ class OcppSocket : public drogon::WebSocketController<OcppSocket> {
     }
 };
 
+void register_station_transport() {
+    // Explicit registration avoids compiler-dependent template static initialization.
+    auto filter = std::make_shared<StationAuth>();
+    drogon::app().registerFilter(filter);
+    if (drogon::DrClassMap::getSingleInstance("ocpp::server::StationAuth") != filter)
+        throw std::runtime_error("Station authentication filter registration failed");
+    drogon::app().registerController(std::make_shared<OcppSocket>());
+}
 } // namespace ocpp::server
