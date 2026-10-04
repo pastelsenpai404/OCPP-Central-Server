@@ -1,6 +1,7 @@
 """Readiness and sandbox-only auth/CORS/input checks. Never prints credentials."""
 import argparse
 import json
+import time
 from pathlib import Path
 import urllib.error
 import urllib.request
@@ -20,9 +21,13 @@ def check(base, directory, tls=False):
         secret = environments[area]['BILLING_API_TOKEN']
 
         def request(path, expected, body=None, authorization=None, origin=None,
-                    host=api, content_type='application/json', method=None):
+                    host=api, content_type='application/json', method=None, request_method=None):
             nonlocal count
+            if tls:
+                time.sleep(0.12)  # Respect the public Nginx 10 requests/second limiter.
             headers = {'Host': host, 'Content-Type': content_type}
+            if request_method is not None:
+                headers['Access-Control-Request-Method'] = request_method
             if authorization is not None:
                 headers['Authorization'] = 'Bearer ' + authorization
             if origin is not None:
@@ -62,6 +67,21 @@ def check(base, directory, tls=False):
         request('/api/v1/quote', 400, '{"energy_wh":1,"satang_per_kwh":750,"extra":1}', secret)
         request('/api/v1/quote', 413, ' ' * 5000, secret)
         request('/unknown', 404)
+        if area == 'management':
+            prefix = '/api/v1/management'
+            request(prefix + '/overview', 401)
+            for role, variable in (('admin', 'BILLING_API_TOKEN'), ('reader', 'BILLING_READER_TOKEN'),
+                                   ('operator', 'BILLING_OPERATOR_TOKEN')):
+                payload, _ = request(prefix + '/me', 200, authorization=environments[area][variable], origin=f'https://{frontend}')
+                assert json.loads(payload)['role'] == role
+            request(prefix + '/modules', 200, authorization=secret)
+            request(prefix + '/overview', 200, authorization=secret)
+            request(prefix + '/companies', 403, '{}', environments[area]['BILLING_READER_TOKEN'])
+            request(prefix + '/admins', 403, '{}', environments[area]['BILLING_OPERATOR_TOKEN'])
+            _, headers = request(prefix + '/wallet/top-up', 204, origin=f'https://{frontend}', method='OPTIONS',
+                                 content_type='application/json', authorization=None,
+                                 request_method='POST')
+            assert 'Idempotency-Key' in headers['Access-Control-Allow-Headers']
     print(f'{count} billing API smoke checks passed (sandbox only).')
 
 

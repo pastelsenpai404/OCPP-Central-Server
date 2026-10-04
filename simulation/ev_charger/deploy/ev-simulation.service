@@ -1,0 +1,31 @@
+[Unit]
+Description=EV charger simulation lab
+After=network.target
+
+[Service]
+Type=simple
+User=ev-simulation
+Group=ev-simulation
+EnvironmentFile=/etc/ev-simulation/runtime.env
+WorkingDirectory=/opt/ev-simulation/current
+ExecStart=/opt/ev-simulation/current/bin/ev_charger_server
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+UMask=0077
+MemoryMax=192M
+TasksMax=32
+LimitNOFILE=1024
+
+[Install]
+WantedBy=multi-user.target

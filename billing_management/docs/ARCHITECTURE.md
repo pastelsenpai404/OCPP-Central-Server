@@ -4,12 +4,12 @@
 
 Management owns staff tariff administration, invoice operations, reconciliation and audit.
 Customer owns the customer's charging history, invoices and payment status views.
-These are planned capabilities, not implemented features of the initial preview.
+Management's sandbox capabilities are implemented; customer remains a preview. See BACKOFFICE.md for the reference mapping and remaining external integrations.
 
 Backend dependency direction:
 
 ```text
-interfaces (CLI now; HTTP later) -> application -> domain
+interfaces (CLI + HTTP) -> application -> domain
 infrastructure -> application ports + domain
 composition root -> concrete adapters
 ```
@@ -52,7 +52,12 @@ and tariff effective dates, append-only ledger semantics, idempotency keys and r
 rules. Payment secrets belong only on the server. Customer endpoints must derive
 ownership from authentication. Staff writes require distinct permissions and audit.
 
-CSMS integration must receive immutable charging facts with stable source IDs and
-handle duplicates atomically. Start with a separate sandbox database and migrations;
-do not read or modify the existing CSMS database implicitly. DB engine and deployment
-configuration will be chosen when persistent application use cases are introduced.
+Management stores isolated sandbox data in SQLite 3.53.4, using prepared statements,
+WAL, full synchronous commits and a mutex around each complete business transaction.
+The deploy unit owns a private StateDirectory outside releases. The application
+depends on the business-facing `application/store.hpp` persistence port. The composition
+root injects the SQLite adapter; SQL remains exclusively in infrastructure. Domain module
+definitions and validation are separate from storage and HTTP. Schema version 1 uses additive setup.
+Financial records are append-only except the controlled issued-to-paid bill transition.
+CSMS ingestion, customer ownership and production payment integrations are separate
+future adapters, not implied by manually entered charging sessions.

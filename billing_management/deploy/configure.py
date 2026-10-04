@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shlex
 import sys
 
 
@@ -17,12 +18,23 @@ def domains(base):
     }
 
 
-def environment(directory, base):
+def environment(directory, base, ocpp_environment=Path('/etc/ocpp-cpp/runtime.env')):
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     tokens = []
+    ocpp_values = {}
+    if ocpp_environment.is_file():
+        ocpp_values = dict(line.split('=', 1) for line in ocpp_environment.read_text().splitlines()
+                           if line and not line.startswith('#'))
+        for key in ('OCPP_ADMIN_TOKEN', 'OCPP_PORT'):
+            if key in ocpp_values:
+                parts = shlex.split(ocpp_values[key])
+                if len(parts) != 1:
+                    raise ValueError('Invalid quoted OCPP environment value')
+                ocpp_values[key] = parts[0]
     for area, (frontend, api, port) in domains(base).items():
         target = directory / f'{area}.env'
         token = None
+        values = {}
         if target.exists():
             values = dict(line.split('=', 1) for line in target.read_text().splitlines()
                           if line and not line.startswith('#'))
@@ -38,6 +50,24 @@ def environment(directory, base):
         with os.fdopen(descriptor, 'w') as stream:
             stream.write(f'BILLING_PORT={port}\nBILLING_API_HOST={api}\n'
                          f'BILLING_ALLOWED_ORIGIN=https://{frontend}\nBILLING_API_TOKEN={token}\n')
+            if area == 'management':
+                stream.write('BILLING_DATABASE_PATH=/var/lib/billing-management/backoffice.sqlite3\n')
+                for name in ('BILLING_READER_TOKEN', 'BILLING_OPERATOR_TOKEN'):
+                    role_token = values.get(name) if target.exists() else None
+                    if role_token and (not re.fullmatch(r'[a-f0-9]{64}', role_token) or role_token in tokens):
+                        raise ValueError('Invalid role token')
+                    role_token = role_token or secrets.token_hex(32)
+                    tokens.append(role_token)
+                    stream.write(f'{name}={role_token}\n')
+                ocpp_token = ocpp_values.get('OCPP_ADMIN_TOKEN', values.get('BILLING_OCPP_TOKEN', ''))
+                if ocpp_token:
+                    if not re.fullmatch(r'[a-f0-9]{64}', ocpp_token):
+                        raise ValueError('Invalid OCPP integration token')
+                    ocpp_port = ocpp_values.get('OCPP_PORT', values.get('BILLING_OCPP_PORT', '5003'))
+                    if not ocpp_port.isdigit() or not 1024 <= int(ocpp_port) <= 65535:
+                        raise ValueError('Invalid OCPP integration port')
+                    stream.write(f'BILLING_OCPP_TOKEN={ocpp_token}\nBILLING_OCPP_HOST=ocpp.{base}\n'
+                                 f'BILLING_OCPP_PORT={ocpp_port}\n')
         temporary.chmod(0o600)
         temporary.replace(target)
 

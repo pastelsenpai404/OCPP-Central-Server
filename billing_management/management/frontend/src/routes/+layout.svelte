@@ -1,5 +1,5 @@
 <script lang="ts">
-  import '@billing/ui/styles.css';
+  import "../lib/backoffice/workspace.css";
   let { children } = $props();
 </script>
 

@@ -42,7 +42,7 @@ if (-not $SkipFrontendBuild) { & (Join-Path $PSScriptRoot 'scripts/build-fronten
 $id = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-' + [Guid]::NewGuid().ToString('N').Substring(0,12)
 $stage = Join-Path $PSScriptRoot ".deps/deploy/$id"
 $null = New-Item -ItemType Directory -Path $stage -Force
-$entries = @('CMakeLists.txt','cmake','shared/domain','shared/transport','shared/frontend/wasm',
+$entries = @('CMakeLists.txt','cmake','scripts/seed-demo.py','shared/domain','shared/transport','shared/frontend/wasm',
     'management/backend','customer/backend','tests','deploy','README.md','CONTRIBUTING.md')
 foreach ($entry in $entries) {
     $path = Join-Path $PSScriptRoot $entry
@@ -73,7 +73,7 @@ foreach ($area in @('management','customer')) {
 $archive = Join-Path $stage 'source.tar.gz'
 Run-Tool (Find-Tool 'tar') @('-czf',$archive,'--exclude=__pycache__','--exclude=*.pyc',
     '--exclude=config.local.json','--exclude=*.ppk','--exclude=*.pem','--exclude=*.key',
-    '--exclude=.env','--exclude=*.env','--exclude=.git','--exclude=node_modules','-C',$payload,'.')
+    '--exclude=.env','--exclude=*.env','--exclude=*.sqlite3*','--exclude=.git','--exclude=node_modules','-C',$payload,'.')
 $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($PackageOnly) { Write-Host "Billing package ready: $archive"; return }
 $plink = Find-Tool 'plink'; $pscp = Find-Tool 'pscp'

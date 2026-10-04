@@ -5,6 +5,43 @@
 namespace ocpp::server {
 void register_admin_routes() {
     auto &app = drogon::app();
+    // Registry-only integration: authentication still requires configured station credentials.
+    // Keep the existing /chargepoints provisioning contract unchanged.
+    app.registerHandler(
+        "/api/v1/admin/chargepoints/register",
+        [](const drogon::HttpRequestPtr &req, HttpCallback &&cb) {
+            if (!authorize(req, cb, 3))
+                return;
+            try {
+                const auto p = request_json(req);
+                if (!p.is_object() || p.size() != 1 || !p.contains("chargeBoxId") ||
+                    !p["chargeBoxId"].is_string()) {
+                    failure(cb, 400, "invalid_request");
+                    return;
+                }
+                const auto id = p["chargeBoxId"].get<std::string>();
+                if (!station_id_valid(id)) {
+                    failure(cb, 400, "invalid_station_id");
+                    return;
+                }
+                const bool configured = runtime->config.station_secrets.contains(id);
+                const auto callback = std::make_shared<HttpCallback>(std::move(cb));
+                if (!runtime->executor.submit(id, [id, configured, callback] {
+                        try {
+                            runtime->service.provision_station(id);
+                            (*callback)(http(201, {{"chargeBoxId", id},
+                                                   {"registryOnly", true},
+                                                   {"credentialsConfigured", configured}}));
+                        } catch (const std::exception &) {
+                            failure(*callback, 503, "provision_failed");
+                        }
+                    }))
+                    failure(*callback, 503, "server_busy");
+            } catch (const std::exception &) {
+                failure(cb, 400, "invalid_request");
+            }
+        },
+        {drogon::Post});
     for (const auto &path : {std::string("/"), std::string("/admin"), std::string("/admin/"),
                              std::string("/admin/app.js"), std::string("/admin/styles.css")}) {
         app.registerHandler(

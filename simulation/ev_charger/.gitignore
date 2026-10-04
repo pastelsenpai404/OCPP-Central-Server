@@ -1,0 +1,12 @@
+/build*/
+/.deps/
+/.venv/
+/config.local.json
+/runtime.env
+*.local.pem
+*.log
+__pycache__/
+node_modules/
+frontend/.svelte-kit/
+frontend/dist/
+frontend/static/wasm/

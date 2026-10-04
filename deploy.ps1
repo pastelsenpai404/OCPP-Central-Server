@@ -1,7 +1,7 @@
 #requires -Version 5.1
 [CmdletBinding()]
 param(
-    [ValidateSet('All','Ocpp','Billing')][string]$Target = 'All',
+    [ValidateSet('All','Ocpp','Billing','Simulation')][string]$Target = 'All',
     [ValidatePattern('^[a-z0-9]+([.-][a-z0-9]+)*\.[a-z]{2,}$')]
     [ValidateLength(4,180)][string]$BaseDomain = 'barryofeverything.com',
     [string]$KeyPath = '',
@@ -18,6 +18,7 @@ if (-not $PrepareOnly -and -not $PackageOnly) {
     $labels = @()
     if ($Target -in 'All','Ocpp') { $labels += 'ocpp' }
     if ($Target -in 'All','Billing') { $labels += 'ev.admin','ev.admin.api','ev.customer','ev.customer.api' }
+    if ($Target -in 'All','Simulation') { $labels += 'ev.simulation' }
     foreach ($label in $labels) {
         $domain = "$label.$BaseDomain"; $addresses = @()
         try { $addresses = @([Net.Dns]::GetHostAddresses($domain) | ForEach-Object { $_.IPAddressToString }) } catch { }
@@ -26,11 +27,15 @@ if (-not $PrepareOnly -and -not $PackageOnly) {
         }
     }
 }
-# Build billing before activating any services, so frontend errors are discovered first.
+# Build frontends before activating any services, so frontend errors are discovered first.
 if ($Target -in 'All','Billing') { & (Join-Path $PSScriptRoot 'billing_management/scripts/build-frontend.ps1') }
+if ($Target -in 'All','Simulation') { & (Join-Path $PSScriptRoot 'simulation/ev_charger/scripts/build-frontend.ps1') }
 if ($Target -in 'All','Ocpp') {
     & (Join-Path $PSScriptRoot 'ocpp_csms/deploy.ps1') @common -Domain "ocpp.$BaseDomain" -ApplyMigrations:$ApplyMigrations
 }
 if ($Target -in 'All','Billing') {
     & (Join-Path $PSScriptRoot 'billing_management/deploy.ps1') @common -BaseDomain $BaseDomain -SkipFrontendBuild
+}
+if ($Target -in 'All','Simulation') {
+    & (Join-Path $PSScriptRoot 'simulation/ev_charger/deploy.ps1') @common -BaseDomain $BaseDomain -SkipFrontendBuild
 }

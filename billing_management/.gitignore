@@ -3,6 +3,7 @@
 /.venv/
 **/dist/
 **/config.local.json
+**/access.local.json
 **/*.local.pem
 **/.env
 *.log
@@ -10,3 +11,4 @@ __pycache__/
 node_modules/
 **/.svelte-kit/
 **/static/wasm/
+*.sqlite3*

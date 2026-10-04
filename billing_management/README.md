@@ -1,6 +1,6 @@
 # Billing management
 
-C++20 billing foundation for two separate applications, with SvelteKit 3 / Svelte 5 / TypeScript frontends and C++ WebAssembly. **Current scope: sandbox quote CLI/HTTP backends and browser previews.** Customer login, invoice persistence, taxes, payment gateways and production billing are not implemented yet. Existing CSMS billing and production databases are not changed.
+C++20 applications with SvelteKit 3 / Svelte 5 / TypeScript and C++ WebAssembly. **Management now provides a persistent sandbox backoffice**: company/project/station/charger/connector/customer/tariff maintenance, wallet ledger, manual charging sessions, invoice generation/payment, test tax documents, audit and archive/restore. Customer remains a quote preview; it does not access the management database. Existing CSMS billing and production databases are not changed. Read the [implemented scope and reference mapping](docs/BACKOFFICE.md).
 
 ```text
 billing_management/
@@ -92,6 +92,6 @@ Shared UI lives in `shared/frontend/components/`; the typed loader is in `shared
 
 After building, run `node tests/wasm/quote-tests.mjs` with Node.js 22+ to check both compiled modules against the native arithmetic cases. The module loader uses the browser build with supplied WASM bytes; these checks do not require a backend or credentials.
 
-The preview does not contact a backend. All authoritative billing must be recalculated and authorized server-side; browser WASM is untrusted. Use integer Wh and satang, with explicitly documented rounding. Do not add database credentials, payment secrets or API admin tokens to frontend files.
+Management contacts its independently authenticated API. The customer quote preview does not contact a backend. All authoritative billing is recalculated and authorized server-side; browser WASM is untrusted. Use integer Wh and satang, with explicitly documented rounding. Do not add database credentials, payment secrets or API admin tokens to frontend files.
 
 Read [architecture](docs/ARCHITECTURE.md) and [contribution rules](CONTRIBUTING.md) before extending this foundation.

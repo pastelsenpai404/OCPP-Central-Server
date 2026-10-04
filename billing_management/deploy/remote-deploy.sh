@@ -133,6 +133,19 @@ for area in management customer; do
     getent passwd "billing-$area" >/dev/null || useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin "billing-$area"
 done
 install -d -m 0700 "$config"
+# An online SQLite backup preserves a consistent WAL snapshot before activation.
+if [[ -f /var/lib/billing-management/backoffice.sqlite3 ]]; then
+    install -d -m 0700 /var/backups/billing-management
+    python3 - "$id" <<'PY'
+import sqlite3, sys
+source = sqlite3.connect('file:/var/lib/billing-management/backoffice.sqlite3?mode=ro', uri=True)
+target = sqlite3.connect('/var/backups/billing-management/' + sys.argv[1] + '.sqlite3')
+with target:
+    source.backup(target)
+target.close()
+source.close()
+PY
+fi
 activated=1
 python3 "$release/deploy/configure.py" environment "$base" "$config"
 for area in management customer; do
@@ -169,7 +182,7 @@ if [[ $mode == prepare ]]; then
     echo "PREPARED: two billing APIs passed checks. Create four A records pointing to 104.248.96.73."
     exit 0
 fi
-certbot certonly --webroot -w /var/www/billing-acme --non-interactive --agree-tos \
+python3 "$release/deploy/certbot.py" certonly --webroot -w /var/www/billing-acme --non-interactive --agree-tos \
     --register-unsafely-without-email --cert-name "billing-management-$base" --keep-until-expiring \
     -d "ev.admin.$base" -d "ev.admin.api.$base" -d "ev.customer.$base" -d "ev.customer.api.$base"
 python3 "$release/deploy/configure.py" nginx-tls "$base" "$release" > "$site"

@@ -121,6 +121,7 @@ All REST endpoints require `Authorization: Bearer <token>`, except `/health/live
 | GET `/api/v1/audit` | admin | Command/admin action records |
 | GET `/api/v1/metrics` | reader | frames, errors, overloads, active sessions |
 | POST `/api/v1/chargepoints` | admin | `{"chargeBoxId":"CP01"}`; credentials must already be configured |
+| POST `/api/v1/admin/chargepoints/register` | admin | Same ID body; idempotent registry-only creation for management integration. Returns `registryOnly` and `credentialsConfigured`; does not bypass station authentication or provision credentials. |
 | POST `/api/v1/ocppTags` | admin | `{"idTag":"TAG","maxActiveTransactions":1}`; optional parentIdTag, expiryDate |
 | POST `/api/v1/chargepoints/{station}/commands/{action}` | operator | OCPP request payload; waits asynchronously up to 30 seconds for validated result |
 | GET `/api/v1/tasks/{commandId}` | operator | Durable task detail; network-profile request secrets are redacted |

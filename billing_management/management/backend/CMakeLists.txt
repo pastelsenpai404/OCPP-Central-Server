@@ -4,7 +4,12 @@ target_link_libraries(billing_management_application PUBLIC billing_domain PRIVA
 add_executable(billing_management_backend src/interfaces/cli/main.cpp)
 target_link_libraries(billing_management_backend PRIVATE billing_management_application billing_options)
 if(BILLING_BUILD_HTTP)
+  include(${PROJECT_SOURCE_DIR}/cmake/sqlite.cmake)
+  add_library(billing_backoffice STATIC src/domain/modules.cpp src/infrastructure/database.cpp
+    src/application/backoffice.cpp src/infrastructure/ocpp_client.cpp src/interfaces/http/routes.cpp)
+  target_include_directories(billing_backoffice PUBLIC include)
+  target_link_libraries(billing_backoffice PUBLIC billing_http PRIVATE billing_sqlite billing_options)
   add_executable(billing_management_api src/interfaces/http/main.cpp)
-  target_link_libraries(billing_management_api PRIVATE billing_management_application billing_http billing_options)
+  target_link_libraries(billing_management_api PRIVATE billing_management_application billing_backoffice billing_options)
   install(TARGETS billing_management_api RUNTIME DESTINATION bin COMPONENT Runtime)
 endif()

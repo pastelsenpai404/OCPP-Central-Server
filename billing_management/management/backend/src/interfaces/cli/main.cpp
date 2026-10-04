@@ -9,7 +9,7 @@ bool parse_integer(std::string_view text, std::int32_t &value) {
     const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
     return result.ec == std::errc{} && result.ptr == text.data() + text.size();
 }
-}
+} // namespace
 
 int main(int argc, char **argv) {
     if (argc != 3) {

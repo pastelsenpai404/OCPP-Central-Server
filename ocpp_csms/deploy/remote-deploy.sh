@@ -175,7 +175,7 @@ addresses = {item[4][0] for item in socket.getaddrinfo(sys.argv[1], 80, socket.A
 if addresses != {'104.248.96.73'}:
     raise SystemExit('DNS must resolve directly to 104.248.96.73 before HTTPS activation')
 PY
-certbot certonly --webroot --webroot-path /var/www/ocpp-acme --non-interactive --agree-tos \
+python3 "$release/deploy/certbot.py" certonly --webroot --webroot-path /var/www/ocpp-acme --non-interactive --agree-tos \
     --register-unsafely-without-email --cert-name "$domain" -d "$domain" --keep-until-expiring
 nginx_changed=1
 sed -e "s/@DOMAIN@/$domain/g" -e "s/@PORT@/$port/g" "$release/deploy/nginx.conf.in" > "$site"

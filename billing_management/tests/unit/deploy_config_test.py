@@ -11,6 +11,16 @@ spec.loader.exec_module(configure)
 
 
 class DeploymentConfigTest(unittest.TestCase):
+    def test_quoted_ocpp_environment_linked_without_browser_exposure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            ocpp = path / 'ocpp.env'
+            ocpp.write_text('OCPP_ADMIN_TOKEN="' + 'a' * 64 + '"\nOCPP_PORT="5003"\n')
+            configure.environment(path / 'billing', 'example.com', ocpp)
+            values = dict(line.split('=', 1) for line in (path / 'billing/management.env').read_text().splitlines())
+            self.assertEqual(values['BILLING_OCPP_TOKEN'], 'a' * 64)
+            self.assertEqual(values['BILLING_OCPP_PORT'], '5003')
+            self.assertNotIn('BILLING_OCPP_TOKEN', (path / 'billing/customer.env').read_text())
     def test_invalid_domain_rejected(self):
         for base in ('bad;command.com', '../example.com', 'bad\nexample.com'):
             with self.assertRaises(ValueError):
